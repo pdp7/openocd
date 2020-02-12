@@ -20,7 +20,7 @@ This software component is licensed under GNU General Public License v2
 
 ### More Information
 
-[openOCD Release Notes](https://github.com/cypresssemiconductorco/openocd/blob/master/RELEASE.MD)
+[openOCD Release Notes](https://github.com/cypresssemiconductorco/openocd/blob/cypress/RELEASE.MD)
 
 OpenOCD documentation in [HTML](http://openocd.org/doc/html/index.html) or [PDF](http://openocd.org/doc/pdf/openocd.pdf).
 
