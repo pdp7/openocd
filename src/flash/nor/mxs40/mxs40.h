@@ -30,18 +30,16 @@
 
 struct mxs40_regs {
 	uint32_t variant;
-	uint32_t spcif_geometry;
 	uint32_t ipc_acquire;
-	uint32_t ipc_release;
 	uint32_t ipc_notify;
 	uint32_t ipc_data;
 	uint32_t ipc_lock_stat;
 	uint32_t ipc_intr;
+	uint32_t ppu_flush;
 	uint32_t vtbase[4];
 	uint32_t mem_base_main[6];
 	uint32_t mem_base_work[6];
 	uint32_t mem_base_sflash[6];
-	uint32_t mem_base_efuses[6];
 };
 
 #define MXS40_VARIANT_PSOC6_BLE2            1
@@ -97,8 +95,7 @@ enum reset_halt_mode {
 };
 
 /* MXS40 Device Family/Die */
-enum mxs40_die {
-							 /* Device Family    | Family ID | Si ID Range */
+enum mxs40_die {             /* Device Family    | Family ID | Si ID Range */
 	die_psoc6_ble2 = 0x100u, /* PSoC6A-BLE2      | 0x100     | E200-E2FF   */
 	die_traveo2_1m = 0x101u, /* TraveoII B-E-1M  | 0x101     | E300-E3FF   */
 	die_psoc6_2m   = 0x102u, /* PSoC6A-2M        | 0x102     | E400-E4FF   */
@@ -127,6 +124,7 @@ struct mxs40_bank_info {
 	size_t program_algo_size;
 	const struct mxs40_regs *regs;
 	const struct efuse_regions *efuse_regions;
+	int (*prepare_function) (struct flash_bank *bank);
 };
 
 struct timeout {
@@ -315,13 +313,6 @@ int mxs40_program(struct flash_bank *bank, const uint8_t *buffer, uint32_t offse
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
  *************************************************************************************************/
 int mxs40_program_with_algo(struct flash_bank *bank, const uint8_t *buffer, uint32_t offset, uint32_t count);
-
-/** ***********************************************************************************************
- * @brief Performs initial setup of the Traveo-II target
- * @param bank The flash bank
- * @return ERROR_OK in case of success, ERROR_XXX code otherwise
- *************************************************************************************************/
-int mxs40_traveo_setup(struct flash_bank *bank);
 
 /** ***********************************************************************************************
  * @brief Performs Erase operation. Corrently not supported.

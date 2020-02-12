@@ -176,16 +176,33 @@ static int mxs40_ipc_acquire(struct flash_bank *bank)
 
 	mxs40_timeout_init(&to, IPC_TIMEOUT_MS);
 
+	uint32_t ppu_negotiation_count = 3;
 	while (!mxs40_timeout_expired(&to)) {
 		keep_alive();
 
-		hr = target_write_u32(target,
-				info->regs->ipc_acquire,
-				IPC_ACQUIRE_SUCCESS_MSK);
+		enum log_levels level = change_debug_level(LOG_LVL_USER);
+		hr = target_write_u32(target, info->regs->ipc_acquire, IPC_ACQUIRE_SUCCESS_MSK);
+		change_debug_level(level);
+
 		if (hr != ERROR_OK) {
-			LOG_ERROR("Unable to write to IPC Acquire register");
-			return hr;
+			if (info->regs->ppu_flush) {
+				LOG_DEBUG("Negotiating PPU buffering issue (reading 0x%08X)", info->regs->ppu_flush);
+
+				level = change_debug_level(LOG_LVL_USER);
+				target_read_u32(target, info->regs->ppu_flush, &reg_val);
+				change_debug_level(level);
+
+				if (--ppu_negotiation_count)
+					continue;
+
+				LOG_ERROR("Unable to write to IPC Acquire register, negotiation failed");
+				return ERROR_TARGET_TIMEOUT;
+			} else {
+				LOG_ERROR("Unable to write to IPC Acquire register, negotiation unavailable");
+				return hr;
+			}
 		}
+
 
 		/* Check if data is written on first step */
 		hr = target_read_u32(target, info->regs->ipc_acquire, &reg_val);
@@ -204,32 +221,6 @@ static int mxs40_ipc_acquire(struct flash_bank *bank)
 
 	if (!is_acquired)
 		LOG_ERROR("Timeout acquiring IPC structure");
-
-	return hr;
-}
-
-/** ***********************************************************************************************
- * @brief Performs initial setup of the Traveo-II target
- * @param bank The flash bank
- * @return ERROR_OK in case of success, ERROR_XXX code otherwise
- *************************************************************************************************/
-int mxs40_traveo_setup(struct flash_bank *bank)
-{
-	int hr = target_write_u32(bank->target, 0x4024F400, 0x01);
-	if (hr != ERROR_OK)
-		return hr;
-
-	hr = target_write_u32(bank->target, 0x4024F500, 0x01);
-	if (hr != ERROR_OK)
-		return hr;
-
-	hr = target_write_u32(bank->target, 0xE000E280, 0x03);
-	if (hr != ERROR_OK)
-		return hr;
-
-	hr = target_write_u32(bank->target, 0xE000E100, 0x03);
-	if (hr != ERROR_OK)
-		return hr;
 
 	return hr;
 }
@@ -306,8 +297,17 @@ int mxs40_sromalgo_prepare(struct flash_bank *bank)
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
+	int hr;
+
+	struct mxs40_bank_info *info = bank->driver_priv;
+	if(info->prepare_function) {
+		hr = info->prepare_function(bank);
+		if (hr != ERROR_OK)
+			return hr;
+	}
+
 	/* Initialize Vector Table Offset register (in case FW modified it) */
-	int hr = target_write_u32(target, NVIC_VTOR, 0x00000000);
+	hr = target_write_u32(target, NVIC_VTOR, 0x00000000);
 	if (hr != ERROR_OK)
 		return hr;
 
@@ -423,8 +423,7 @@ int mxs40_call_sromapi(struct flash_bank *bank,
 	if (hr != ERROR_OK)
 		return hr;
 
-	/* Enable notification interrupt of IPC_INTR_STRUCT0(CM0+) for IPC_STRUCT2
-	 * This register is protected on secure devices */
+	/* Enable notification interrupt of IPC_INTR_STRUCT0(CM0+) for IPC_STRUCT2 */
 	hr = target_write_u32(target, info->regs->ipc_intr, 0x0Fu << 16);
 	if (hr != ERROR_OK)
 		return hr;
@@ -1240,6 +1239,86 @@ COMMAND_HANDLER(mxs40_handle_set_region_size)
 	return ERROR_OK;
 }
 
+static struct flash_bank *mxs40_get_any_bank(struct target *target)
+{
+	for(struct flash_bank *b = flash_bank_list(); b; b = b->next) {
+		if(b->target == target) {
+			b->driver->auto_probe(b);
+			return b;
+		}
+	}
+
+	LOG_ERROR("Unable to find ant flash bank for the target %s", target_name(target));
+	return NULL;
+}
+
+COMMAND_HANDLER(mxs40_handle_sromcall_prepare)
+{
+	struct flash_bank *bank = mxs40_get_any_bank(get_current_target(CMD_CTX));
+	if(!bank)
+		return ERROR_FAIL;
+
+	return mxs40_sromalgo_prepare(bank);
+}
+
+COMMAND_HANDLER(mxs40_handle_sromcall)
+{
+	if(!CMD_ARGC) {
+		LOG_ERROR("At least one argument required");
+		return ERROR_COMMAND_SYNTAX_ERROR;
+	}
+
+	uint32_t sromapi_params[CMD_ARGC];
+
+	for(size_t i = 0; i < CMD_ARGC; i++) {
+		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[i], sromapi_params[i]);
+		if(i == 0 && (sromapi_params[i] & 0x01) && CMD_ARGC > 1) {
+			LOG_ERROR("Additional SROM API parameters can be passed via RAM buffer only, "
+					  "check bit #0 of your SROM API request.");
+			return ERROR_COMMAND_SYNTAX_ERROR;
+		}
+	}
+
+	struct target *target = get_current_target(CMD_CTX);
+	struct working_area *wa;
+
+	int hr;
+	bool data_in_ram = (sromapi_params[0] & SROMAPI_DATA_LOCATION_MSK) == 0;
+	if(data_in_ram) {
+		hr = target_alloc_working_area(target, CMD_ARGC * sizeof(uint32_t), &wa);
+		if (hr != ERROR_OK)
+			goto exit;
+
+		hr = target_write_buffer(target, wa->address, CMD_ARGC * sizeof(uint32_t), (uint8_t *)sromapi_params);
+		if(hr != ERROR_OK)
+			goto exit_free_wa;
+	}
+
+	struct flash_bank *bank = mxs40_get_any_bank(get_current_target(CMD_CTX));
+	if(!bank) {
+		hr = ERROR_FAIL;
+		goto exit_free_wa;
+	}
+
+	uint32_t data_out;
+	hr = mxs40_call_sromapi(bank, sromapi_params[0], data_in_ram ? wa->address : 0, &data_out);
+	if(hr == ERROR_OK && data_out != 0xA0000000)
+		command_print(CMD_CTX, "0x%08X", data_out);
+
+exit_free_wa:
+	if(data_in_ram)
+		target_free_working_area(target, wa);
+
+exit:
+	return hr;
+}
+
+COMMAND_HANDLER(mxs40_handle_sromcall_release)
+{
+	mxs40_sromalgo_release(get_current_target(CMD_CTX));
+	return ERROR_OK;
+}
+
 const struct command_registration mxs40_exec_command_handlers[] = {
 	{
 		.name = "mass_erase",
@@ -1276,6 +1355,27 @@ const struct command_registration mxs40_exec_command_handlers[] = {
 		.mode = COMMAND_ANY,
 		.usage = "<region_name> <region_sectors>",
 		.help = "Sets sectors for specified region",
+	},
+	{
+		.name = "sromcall_prepare",
+		.handler = mxs40_handle_sromcall_prepare,
+		.mode = COMMAND_ANY,
+		.usage = "",
+		.help = "Prepares mxs40 driver for direct srom calls",
+	},
+	{
+		.name = "sromcall",
+		.handler = mxs40_handle_sromcall,
+		.mode = COMMAND_ANY,
+		.usage = "<call_id> [param1] [param2] ...",
+		.help = "Calls SROM API function <call_id> with arbitrary number of additional parameters",
+	},
+	{
+		.name = "sromcall_release",
+		.handler = mxs40_handle_sromcall_release,
+		.mode = COMMAND_ANY,
+		.usage = "",
+		.help = "Releases resources allocated by 'sromcall_prepare'",
 	},
 	COMMAND_REGISTRATION_DONE
 };

@@ -39,13 +39,11 @@
 #define MEM_WFLASH_SIZE                32768u
 #define MEM_SFLASH_SIZE                32768u
 
-#define MEM_SPCIF1_GEOMETRY            0x4025F00Cu
 #define MEM_BASE_IPC1                  0x40230040u
 #define MEM_IPC1_INTR_MASK             0x40231008u
 #define MEM_VTBASE1_CM0                0x402102B0u
 #define MEM_VTBASE1_CM4                0x402102C0u
 #define MEM_IPC1_ACQUIRE               (MEM_BASE_IPC1 + 0x00u)
-#define MEM_IPC1_RELEASE               (MEM_BASE_IPC1 + 0x04u)
 #define MEM_IPC1_NOTIFY                (MEM_BASE_IPC1 + 0x08u)
 #define MEM_IPC1_DATA                  (MEM_BASE_IPC1 + 0x0Cu)
 #define MEM_IPC1_LOCK_STATUS           (MEM_BASE_IPC1 + 0x10u)
@@ -53,9 +51,7 @@
 /* PSOC6A1M registers */
 const struct mxs40_regs psoc6_ble2_regs = {
 	.variant = MXS40_VARIANT_PSOC6_BLE2,
-	.spcif_geometry = MEM_SPCIF1_GEOMETRY,
 	.ipc_acquire = MEM_IPC1_ACQUIRE,
-	.ipc_release = MEM_IPC1_RELEASE,
 	.ipc_notify = MEM_IPC1_NOTIFY,
 	.ipc_data = MEM_IPC1_DATA,
 	.ipc_lock_stat = MEM_IPC1_LOCK_STATUS,
@@ -64,16 +60,13 @@ const struct mxs40_regs psoc6_ble2_regs = {
 	.mem_base_main = {0x10000000, 0, },
 	.mem_base_work = {0x14000000, 0, },
 	.mem_base_sflash = {0x16000000, 0, },
-	.mem_base_efuses = {0x90700000, 0, },
 };
 
-#define MEM_SPCIF2_GEOMETRY            0x4024F010u
 #define MEM_BASE_IPC2                  0x40220040u
 #define MEM_IPC2_INTR_MASK             0x40221008u
 #define MEM_VTBASE2_CM0                0x40201120u
 #define MEM_VTBASE2_CM4                0x40200200u
 #define MEM_IPC2_ACQUIRE               (MEM_BASE_IPC2 + 0x00u)
-#define MEM_IPC2_RELEASE               (MEM_BASE_IPC2 + 0x04u)
 #define MEM_IPC2_NOTIFY                (MEM_BASE_IPC2 + 0x08u)
 #define MEM_IPC2_DATA                  (MEM_BASE_IPC2 + 0x0Cu)
 #define MEM_IPC2_LOCK_STATUS           (MEM_BASE_IPC2 + 0x1Cu)
@@ -81,18 +74,16 @@ const struct mxs40_regs psoc6_ble2_regs = {
 /* PSoC6A2M registers */
 const struct mxs40_regs psoc6_2m_regs = {
 	.variant = MXS40_VARIANT_PSOC6A_2M,
-	.spcif_geometry = MEM_SPCIF2_GEOMETRY,
 	.ipc_acquire = MEM_IPC2_ACQUIRE,
-	.ipc_release = MEM_IPC2_RELEASE,
 	.ipc_notify = MEM_IPC2_NOTIFY,
 	.ipc_data = MEM_IPC2_DATA,
 	.ipc_lock_stat = MEM_IPC2_LOCK_STATUS,
 	.ipc_intr = MEM_IPC2_INTR_MASK,
+	.ppu_flush = 0x40010100,
 	.vtbase = { MEM_VTBASE2_CM0, MEM_VTBASE2_CM4, 0, },
 	.mem_base_main = {0x10000000, 0,},
 	.mem_base_work = {0x14000000, 0,},
 	.mem_base_sflash = {0x16000000, 0,},
-	.mem_base_efuses = {0x90700000, 0,},
 };
 
 /** ***********************************************************************************************
@@ -236,7 +227,6 @@ FLASH_BANK_COMMAND_HANDLER(psoc6_ble2_flash_bank_command)
 	};
 
 	struct mxs40_bank_info *info = calloc(1, sizeof(struct mxs40_bank_info));
-	info->is_probed = false;
 	info->program_algo_p = p6_program_algo;
 	info->program_algo_size = sizeof(p6_program_algo);
 	info->regs = &psoc6_ble2_regs;
@@ -256,7 +246,6 @@ FLASH_BANK_COMMAND_HANDLER(psoc6_2m_flash_bank_command)
 	};
 
 	struct mxs40_bank_info *info = calloc(1, sizeof(struct mxs40_bank_info));
-	info->is_probed = false;
 	info->program_algo_p = p6_2m_program_algo;
 	info->program_algo_size = sizeof(p6_2m_program_algo);
 	info->regs = &psoc6_2m_regs;

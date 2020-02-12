@@ -954,12 +954,6 @@ int efuse_program_bank(struct flash_bank *bank, const uint8_t *buffer, uint32_t 
 		return ERROR_OK;
 	}
 
-	if (is_tv2){
-		int hr = mxs40_traveo_setup(bank);
-		if (hr != ERROR_OK)
-			return hr;
-	}
-
 	/* Verify if efuse data in programming file is correct */
 	for (size_t i = 0; i < count; i++) {
 		if (buffer[i] != MXS40_EFUSE_NOT_BLOWN &&
@@ -1047,12 +1041,6 @@ int efuse_erase(struct flash_bank *bank, int first, int last)
 int efuse_read_bank(struct flash_bank *bank, uint8_t *buffer,
 	uint32_t offset, uint32_t count)
 {
-	if (efuse_is_tv2(bank)){
-		int hr = mxs40_traveo_setup(bank);
-		if (hr != ERROR_OK)
-			return hr;
-	}
-
 	memset(buffer, 0, count);
 
 	uint32_t cur_addr = offset;
