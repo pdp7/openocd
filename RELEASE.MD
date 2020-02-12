@@ -14,7 +14,7 @@ N/A
 ### More information
 
 -   [openOCD
-    README.md](https://github.com/cypresssemiconductorco/openocd/blob/master/README.md)
+    README.md](https://github.com/cypresssemiconductorco/openocd/blob/cypress/README.md)
     
 -   [openOCD User Guide](https://www.cypress.com/file/495061/download)
 
