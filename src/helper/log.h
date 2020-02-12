@@ -99,6 +99,8 @@ char *alloc_printf(const char *fmt, ...);
 
 extern int debug_level;
 
+enum log_levels change_debug_level(enum log_levels new_level);
+
 /* Avoid fn call and building parameter list if we're not outputting the information.
  * Matters on feeble CPUs for DEBUG/INFO statements that are involved frequently */
 

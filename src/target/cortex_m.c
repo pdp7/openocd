@@ -677,8 +677,8 @@ static int cortex_m_halt(struct target *target)
 
 	if (target->state == TARGET_RESET) {
 		if ((jtag_get_reset_config() & RESET_SRST_PULLS_TRST) && jtag_get_srst()) {
-			LOG_ERROR("can't request a halt while in reset if nSRST pulls nTRST");
-			return ERROR_TARGET_FAILURE;
+			LOG_INFO("can't request a halt while in reset if nSRST pulls nTRST");
+			return ERROR_OK;
 		} else {
 			/* we came here in a reset_halt or reset_init sequence
 			 * debug entry was already prepared in cortex_m3_assert_reset()
@@ -1091,7 +1091,7 @@ static int cortex_m_assert_reset(struct target *target)
 	if (!target_was_examined(target)) {
 		if (jtag_reset_config & RESET_HAS_SRST) {
 			adapter_assert_reset();
-			if (target->reset_halt)
+			if (target->reset_halt && (jtag_reset_config & RESET_SRST_NO_GATING))
 				LOG_ERROR("Target not examined, will not halt after reset!");
 			return ERROR_OK;
 		} else {
@@ -1101,7 +1101,7 @@ static int cortex_m_assert_reset(struct target *target)
 	}
 
 	if ((jtag_reset_config & RESET_HAS_SRST) &&
-	    (jtag_reset_config & RESET_SRST_NO_GATING)) {
+		(jtag_reset_config & RESET_SRST_NO_GATING)) {
 		adapter_assert_reset();
 		srst_asserted = true;
 	}
@@ -1181,6 +1181,13 @@ static int cortex_m_assert_reset(struct target *target)
 		if (retval3 != ERROR_OK)
 			LOG_DEBUG("Ignoring AP write error right after reset");
 
+		const int dl_old = debug_level;
+		debug_level = -1;
+		usleep(100000);
+		dap_invalidate_cache(armv7m->debug_ap->dap);
+		mem_ap_read_atomic_u32(armv7m->debug_ap, DCB_DHCSR, &cortex_m->dcb_dhcsr);
+		debug_level = dl_old;
+
 		retval3 = dap_dp_init(armv7m->debug_ap->dap);
 		if (retval3 != ERROR_OK)
 			LOG_ERROR("DP initialisation failed");
@@ -1226,7 +1233,7 @@ static int cortex_m_deassert_reset(struct target *target)
 	enum reset_types jtag_reset_config = jtag_get_reset_config();
 
 	if ((jtag_reset_config & RESET_HAS_SRST) &&
-	    !(jtag_reset_config & RESET_SRST_NO_GATING) &&
+		!(jtag_reset_config & RESET_SRST_NO_GATING) &&
 		target_was_examined(target)) {
 		int retval = dap_dp_init(armv7m->debug_ap->dap);
 		if (retval != ERROR_OK) {
@@ -1783,7 +1790,7 @@ void cortex_m_deinit_target(struct target *target)
 }
 
 int cortex_m_profiling(struct target *target, uint32_t *samples,
-			      uint32_t max_num_samples, uint32_t *num_samples, uint32_t seconds)
+				  uint32_t max_num_samples, uint32_t *num_samples, uint32_t seconds)
 {
 	struct timeval timeout, now;
 	struct armv7m_common *armv7m = target_to_armv7m(target);
@@ -2154,13 +2161,13 @@ int cortex_m_examine(struct target *target)
 		}
 
 		if (armv7m->fp_feature == FP_NONE &&
-		    armv7m->arm.core_cache->num_regs > ARMV7M_NUM_CORE_REGS_NOFP) {
+			armv7m->arm.core_cache->num_regs > ARMV7M_NUM_CORE_REGS_NOFP) {
 			/* free unavailable FPU registers */
 			size_t idx;
 
 			for (idx = ARMV7M_NUM_CORE_REGS_NOFP;
-			     idx < armv7m->arm.core_cache->num_regs;
-			     idx++) {
+				 idx < armv7m->arm.core_cache->num_regs;
+				 idx++) {
 				free(armv7m->arm.core_cache->reg_list[idx].value);
 				free(armv7m->arm.core_cache->reg_list[idx].feature);
 				free(armv7m->arm.core_cache->reg_list[idx].reg_data_type);

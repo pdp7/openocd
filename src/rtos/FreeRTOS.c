@@ -105,6 +105,7 @@ static int FreeRTOS_update_threads(struct rtos *rtos);
 static int FreeRTOS_get_thread_reg_list(struct rtos *rtos, int64_t thread_id,
 		struct rtos_reg **reg_list, int *num_regs);
 static int FreeRTOS_get_symbol_list_to_lookup(symbol_table_elem_t *symbol_list[]);
+static int FreeRTOS_wipe(struct target *target);
 
 struct rtos_type FreeRTOS_rtos = {
 	.name = "FreeRTOS",
@@ -114,6 +115,7 @@ struct rtos_type FreeRTOS_rtos = {
 	.update_threads = FreeRTOS_update_threads,
 	.get_thread_reg_list = FreeRTOS_get_thread_reg_list,
 	.get_symbol_list_to_lookup = FreeRTOS_get_symbol_list_to_lookup,
+	.wipe = FreeRTOS_wipe,
 };
 
 enum FreeRTOS_symbol_values {
@@ -155,11 +157,34 @@ static const struct symbols FreeRTOS_symbol_list[] = {
 /* may be problems reading if sizes are not 32 bit long integers. */
 /* test mallocs for failure */
 
+static int FreeRTOS_wipe(struct target *target)
+{
+	struct rtos *rtos = target->rtos;
+	const struct FreeRTOS_params *param = rtos->rtos_specific_params;
+
+	if (!param)
+		return ERROR_FAIL;
+
+	if (!rtos->symbols)
+		return ERROR_FAIL;
+
+	if (rtos->symbols[FreeRTOS_VAL_uxCurrentNumberOfTasks].address == 0)
+		return ERROR_FAIL;
+
+	uint8_t thread_list[param->thread_count_width];
+	memset(thread_list, 0, param->thread_count_width);
+
+	/* Clear CurrentNumberOfTasks, this is sufficient to wipe the RTOS */
+	return target_write_buffer(rtos->target,
+			rtos->symbols[FreeRTOS_VAL_uxCurrentNumberOfTasks].address,
+			param->thread_count_width, (uint8_t *)&thread_list);
+}
+
 static int FreeRTOS_update_threads(struct rtos *rtos)
 {
 	int i = 0;
 	int retval;
-	int tasks_found = 0;
+	uint32_t tasks_found = 0;
 	const struct FreeRTOS_params *param;
 
 	if (rtos->rtos_specific_params == NULL)
@@ -177,7 +202,7 @@ static int FreeRTOS_update_threads(struct rtos *rtos)
 		return -2;
 	}
 
-	int thread_list_size = 0;
+	uint32_t thread_list_size = 0;
 	retval = target_read_buffer(rtos->target,
 			rtos->symbols[FreeRTOS_VAL_uxCurrentNumberOfTasks].address,
 			param->thread_count_width,
@@ -207,11 +232,46 @@ static int FreeRTOS_update_threads(struct rtos *rtos)
 										rtos->symbols[FreeRTOS_VAL_pxCurrentTCB].address,
 										rtos->current_thread);
 
+	/* Attempt to validate FreeRTOS. This avoids issues when RAM contains garbage after Reset
+	 * In initialized FreeRTOS pxOverflowDelayedTaskList and pxDelayedTaskList pointers
+	 * must point to either xDelayedTaskList1 or xDelayedTaskList2 */
+	uint32_t ptr = 0;
+	retval = target_read_buffer(rtos->target,
+			rtos->symbols[FreeRTOS_VAL_pxDelayedTaskList].address,
+			param->pointer_width, (uint8_t *)&ptr);
+
+	if(retval != ERROR_OK)
+		return retval;
+
+	if(ptr != rtos->symbols[FreeRTOS_VAL_xDelayedTaskList1].address &&
+	   ptr != rtos->symbols[FreeRTOS_VAL_xDelayedTaskList2].address) {
+		LOG_DEBUG("FreeRTOS not initialized (pxDelayedTaskList != &xDelayedTaskListN)");
+		thread_list_size = 0;
+		goto proceed;
+	}
+
+	retval = target_read_buffer(rtos->target,
+			rtos->symbols[FreeRTOS_VAL_pxOverflowDelayedTaskList].address,
+			param->pointer_width, (uint8_t *)&ptr);
+
+	if(retval != ERROR_OK)
+		return retval;
+
+	if(ptr != rtos->symbols[FreeRTOS_VAL_xDelayedTaskList1].address &&
+	   ptr != rtos->symbols[FreeRTOS_VAL_xDelayedTaskList2].address) {
+		LOG_DEBUG("FreeRTOS not initialized (pxOverflowDelayedTaskList != &xDelayedTaskListN)");
+		thread_list_size = 0;
+	}
+
+proceed:
 	if ((thread_list_size  == 0) || (rtos->current_thread == 0)) {
 		/* Either : No RTOS threads - there is always at least the current execution though */
 		/* OR     : No current thread - all threads suspended - show the current execution
 		 * of idling */
-		char tmp_str[] = "Current Execution";
+
+		const char tmp_thread_name[] = "Current Execution";
+		const char tmp_thread_extra_info[] = "No RTOS thread";
+
 		thread_list_size++;
 		tasks_found++;
 		rtos->thread_details = malloc(
@@ -220,11 +280,14 @@ static int FreeRTOS_update_threads(struct rtos *rtos)
 			LOG_ERROR("Error allocating memory for %d threads", thread_list_size);
 			return ERROR_FAIL;
 		}
+
+		rtos->current_thread = 1;
 		rtos->thread_details->threadid = 1;
 		rtos->thread_details->exists = true;
-		rtos->thread_details->extra_info_str = NULL;
-		rtos->thread_details->thread_name_str = malloc(sizeof(tmp_str));
-		strcpy(rtos->thread_details->thread_name_str, tmp_str);
+		rtos->thread_details->extra_info_str = malloc(sizeof(tmp_thread_extra_info));
+		strcpy(rtos->thread_details->extra_info_str, tmp_thread_extra_info);
+		rtos->thread_details->thread_name_str = malloc(sizeof(tmp_thread_name));
+		strcpy(rtos->thread_details->thread_name_str, tmp_thread_name);
 
 		if (thread_list_size == 1) {
 			rtos->thread_count = 1;

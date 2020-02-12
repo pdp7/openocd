@@ -131,6 +131,11 @@ proc ocd_process_reset_inner { MODE } {
 			if { 0 != [string compare $s "halted" ] } {
 				return -code error [format "TARGET: %s - Not halted" $t]
 			}
+
+			# Wipe RTOS data structures, if configured
+			if { [$t cget -rtos-wipe-on-reset-halt] == "1" } {
+				rtos wipe $t
+			}
 		}
 	}
 

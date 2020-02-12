@@ -122,8 +122,13 @@ static void log_puts(enum log_levels level,
 		} else {
 			/* if we are using gdb through pipes then we do not want any output
 			 * to the pipe otherwise we get repeated strings */
-			fprintf(log_output, "%s%s",
-				(level > LOG_LVL_USER) ? log_strings[level + 1] : "", string);
+			if (level == LOG_LVL_ERROR && log_output == stdout) {
+				fprintf(stderr, "%s%s",
+					(level > LOG_LVL_USER) ? log_strings[level + 1] : "", string);
+			} else {
+				fprintf(log_output, "%s%s",
+					(level > LOG_LVL_USER) ? log_strings[level + 1] : "", string);
+			}
 		}
 	} else {
 		/* Empty strings are sent to log callbacks to keep e.g. gdbserver alive, here we do
@@ -280,9 +285,18 @@ void log_init(void)
 	}
 
 	if (log_output == NULL)
-		log_output = stderr;
+		log_output = stdout;
 
 	start = last_time = timeval_ms();
+}
+
+enum log_levels change_debug_level(enum log_levels new_level) {
+	if(debug_level >= LOG_LVL_DEBUG)
+		return debug_level;
+
+	enum log_levels old_level = debug_level;
+	debug_level = new_level;
+	return old_level;
 }
 
 int set_log_output(struct command_context *cmd_ctx, FILE *output)

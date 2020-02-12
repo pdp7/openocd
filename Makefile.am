@@ -89,9 +89,14 @@ $(THE_MANUAL): %.pdf: %.tex
 	-cd $$(dirname $*) && pdflatex $$(basename $*)
 
 TCL_PATH = tcl
+FLM_PATH = flm
+
 # command to find paths of script files, relative to TCL_PATH
 TCL_FILES = find $(srcdir)/$(TCL_PATH) -name '*.cfg' -o -name '*.tcl' -o -name '*.txt' | \
 		sed -e 's,^$(srcdir)/$(TCL_PATH),,'
+
+FLM_FILES = find $(srcdir)/$(FLM_PATH) -name '*.flm' -o -name '*.elf' | \
+		sed -e 's,^$(srcdir)/$(FLM_PATH),,'
 
 dist-hook:
 	if test -d $(srcdir)/.git -a \( ! -e $(distdir)/ChangeLog -o -w $(distdir)/ChangeLog \) ; then \
@@ -102,12 +107,22 @@ dist-hook:
 		mkdir -p "$$(dirname $$j)" && \
 		$(INSTALL_DATA) $(srcdir)/$(TCL_PATH)/$$i $$j; \
 	done
+	for i in $$($(FLM_FILES)); do \
+		j="$(distdir)/$(FLM_PATH)/$$i" && \
+		mkdir -p "$$(dirname $$j)" && \
+		$(INSTALL_DATA) $(srcdir)/$(FLM_PATH)/$$i $$j; \
+	done
 
 install-data-hook:
 	for i in $$($(TCL_FILES)); do \
 		j="$(DESTDIR)$(pkgdatadir)/scripts/$$i" && \
 		mkdir -p "$$(dirname $$j)" && \
 		$(INSTALL_DATA) $(srcdir)/$(TCL_PATH)/$$i $$j; \
+	done
+	for i in $$($(FLM_FILES)); do \
+		j="$(DESTDIR)$(pkgdatadir)/flm/$$i" && \
+		mkdir -p "$$(dirname $$j)" && \
+		$(INSTALL_DATA) $(srcdir)/$(FLM_PATH)/$$i $$j; \
 	done
 
 uninstall-hook:

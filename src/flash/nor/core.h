@@ -119,6 +119,11 @@ struct flash_bank {
      * Can be size in bytes or FLASH_WRITE_CONTINUOUS */
 	uint32_t minimal_write_gap;
 
+	/** Controls whether this bank is memory-mapped. This affects how verification is done:
+	 * For memory-mapped banks CRC algorithm possible followed by target_read_memory will be used.
+	 * For non-mapped banks only drivers read() method will be used */
+	bool is_memory_mapped;
+
 	/**
 	 * The number of sectors on this chip.  This value will
 	 * be set intially to 0, and the flash driver must set this to

@@ -128,6 +128,7 @@ extern struct jtag_interface cmsis_dap_interface;
 #endif
 #if BUILD_KITPROG == 1
 extern struct jtag_interface kitprog_interface;
+extern struct jtag_interface kitprog3_interface;
 #endif
 #if BUILD_IMX_GPIO == 1
 extern struct jtag_interface imx_gpio_interface;
@@ -233,6 +234,7 @@ struct jtag_interface *jtag_interfaces[] = {
 #endif
 #if BUILD_KITPROG == 1
 		&kitprog_interface,
+		&kitprog3_interface,
 #endif
 #if BUILD_IMX_GPIO == 1
 		&imx_gpio_interface,

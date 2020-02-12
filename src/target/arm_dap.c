@@ -59,6 +59,7 @@ static void dap_instance_init(struct adiv5_dap *dap)
 		dap->ap[i].csw_default = CSW_DEFAULT;
 	}
 	INIT_LIST_HEAD(&dap->cmd_journal);
+	INIT_LIST_HEAD(&dap->cmd_pool);
 }
 
 const char *adiv5_dap_name(struct adiv5_dap *self)
@@ -122,8 +123,11 @@ static int dap_init_all(void)
 			dap->ops = &jtag_dp_ops;
 
 		retval = dap->ops->connect(dap);
-		if (retval != ERROR_OK)
+		if (retval != ERROR_OK) {
+			LOG_ERROR("DAP '%s' initialization failed (check connection, power, etc.)",
+					  dap->tap->dotted_name);
 			return retval;
+		}
 	}
 
 	return ERROR_OK;

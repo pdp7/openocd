@@ -39,6 +39,7 @@
 #include <flash/mflash.h>
 #include <target/arm_cti.h>
 #include <target/arm_adi_v5.h>
+#include <rtos/rtos.h>
 
 #include <server/server.h>
 #include <server/gdb_server.h>
@@ -260,6 +261,7 @@ struct command_context *setup_command_handler(Jim_Interp *interp)
 		&mflash_register_commands,
 		&cti_register_commands,
 		&dap_register_commands,
+		&rtos_register_commands,
 		NULL
 	};
 	for (unsigned i = 0; NULL != command_registrants[i]; i++) {

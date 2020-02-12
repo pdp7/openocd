@@ -711,8 +711,11 @@ int command_run_line(struct command_context *context, char *line)
 	} else if (retcode == ERROR_COMMAND_CLOSE_CONNECTION) {
 		return retcode;
 	} else {
-		Jim_MakeErrorMessage(interp);
-		LOG_USER("%s", Jim_GetString(Jim_GetResult(interp), NULL));
+		/* Report only errors which were not caught by 'catch' */
+		if(interp->errorFlag) {
+			Jim_MakeErrorMessage(interp);
+			LOG_USER("%s", Jim_GetString(Jim_GetResult(interp), NULL));
+		}
 
 		if (retval == ERROR_OK) {
 			/* It wasn't a low level OpenOCD command that failed */

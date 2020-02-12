@@ -55,6 +55,8 @@
 #include "rtos/rtos.h"
 #include "transport/transport.h"
 #include "arm_cti.h"
+#include "flash/nor/imp.h"
+#include "flash/progress.h"
 
 /* default halt wait timeout (ms) */
 #define DEFAULT_HALT_TIMEOUT 5000
@@ -167,6 +169,15 @@ static const Jim_Nvp nvp_assert[] = {
 	{ .name = "f", NVP_DEASSERT },
 	{ .name = NULL, .value = -1 }
 };
+
+struct verify_range {
+	char *target_name;
+	target_addr_t addr;
+	size_t size;
+};
+
+static struct verify_range *verify_ranges;
+static size_t num_verify_ranges;
 
 static const Jim_Nvp nvp_error_target[] = {
 	{ .value = ERROR_TARGET_INVALID, .name = "err-invalid" },
@@ -981,6 +992,8 @@ int target_run_flash_async_algorithm(struct target *target,
 		return retval;
 	}
 
+	progress_init(count, PROGRAMMING);
+
 	while (count > 0) {
 
 		retval = target_read_u32(target, rp_addr, &rp);
@@ -1037,6 +1050,10 @@ int target_run_flash_async_algorithm(struct target *target,
 		if (thisrun_bytes > count * block_size)
 			thisrun_bytes = count * block_size;
 
+		/* Force end of large blocks to be word aligned */
+		if (thisrun_bytes >= 16)
+			thisrun_bytes -= (rp + thisrun_bytes) & 0x03;
+
 		/* Write data to fifo */
 		retval = target_write_buffer(target, wp, thisrun_bytes, buffer);
 		if (retval != ERROR_OK)
@@ -1056,7 +1073,12 @@ int target_run_flash_async_algorithm(struct target *target,
 
 		/* Avoid GDB timeouts */
 		keep_alive();
+
+		progress_left(count);
+
 	}
+
+	progress_done(retval);
 
 	if (retval != ERROR_OK) {
 		/* abort flash write algorithm on target */
@@ -1079,6 +1101,152 @@ int target_run_flash_async_algorithm(struct target *target,
 		retval = target_read_u32(target, rp_addr, &rp);
 		if (retval == ERROR_OK && rp == 0) {
 			LOG_ERROR("flash write algorithm aborted by target");
+			retval = ERROR_FLASH_OPERATION_FAILED;
+		}
+	}
+
+	return retval;
+}
+
+int target_run_read_async_algorithm(struct target *target,
+		uint8_t *buffer, uint32_t count, int block_size,
+		int num_mem_params, struct mem_param *mem_params,
+		int num_reg_params, struct reg_param *reg_params,
+		uint32_t buffer_start, uint32_t buffer_size,
+		uint32_t entry_point, uint32_t exit_point, void *arch_info)
+{
+	int retval;
+	int timeout = 0;
+
+	const uint8_t *buffer_orig = buffer;
+
+	/* Set up working area. First word is write pointer, second word is read pointer,
+	 * rest is fifo data area. */
+	uint32_t wp_addr = buffer_start;
+	uint32_t rp_addr = buffer_start + 4;
+	uint32_t fifo_start_addr = buffer_start + 8;
+	uint32_t fifo_end_addr = buffer_start + buffer_size;
+
+	uint32_t wp = fifo_start_addr;
+	uint32_t rp = fifo_start_addr;
+
+	/* validate block_size is 2^n */
+	assert(!block_size || !(block_size & (block_size - 1)));
+
+	retval = target_write_u32(target, wp_addr, wp);
+	if (retval != ERROR_OK)
+		return retval;
+	retval = target_write_u32(target, rp_addr, rp);
+	if (retval != ERROR_OK)
+		return retval;
+
+	/* Start up algorithm on target */
+	retval = target_start_algorithm(target, num_mem_params, mem_params,
+			num_reg_params, reg_params,
+			entry_point,
+			exit_point,
+			arch_info);
+
+	if (retval != ERROR_OK) {
+		LOG_ERROR("error starting target flash read algorithm");
+		return retval;
+	}
+
+	while (count > 0) {
+		retval = target_read_u32(target, wp_addr, &wp);
+		if (retval != ERROR_OK) {
+			LOG_ERROR("failed to get write pointer");
+			break;
+		}
+
+		LOG_DEBUG("offs 0x%zx count 0x%" PRIx32 " wp 0x%" PRIx32 " rp 0x%" PRIx32,
+			(size_t) (buffer - buffer_orig), count, wp, rp);
+
+		if (wp == 0) {
+			LOG_ERROR("flash read algorithm aborted by target");
+			retval = ERROR_FLASH_OPERATION_FAILED;
+			break;
+		}
+
+		if (((wp - fifo_start_addr) & (block_size - 1)) || wp < fifo_start_addr || wp >= fifo_end_addr) {
+			LOG_ERROR("corrupted fifo write pointer 0x%" PRIx32, wp);
+			break;
+		}
+
+		/* Count the number of bytes available in the fifo without
+		 * crossing the wrap around. */
+		uint32_t thisrun_bytes;
+		if (wp >= rp)
+			thisrun_bytes = wp - rp;
+		else
+			thisrun_bytes = fifo_end_addr - rp;
+
+		if (thisrun_bytes == 0) {
+			/* Throttle polling a bit if transfer is (much) faster than flash
+			 * reading. The exact delay shouldn't matter as long as it's
+			 * less than buffer size / flash speed. This is very unlikely to
+			 * run when using high latency connections such as USB. */
+			alive_sleep(10);
+
+			/* to stop an infinite loop on some targets check and increment a timeout
+			 * this issue was observed on a stellaris using the new ICDI interface */
+			if (timeout++ >= 500) {
+				LOG_ERROR("timeout waiting for algorithm, a target reset is recommended");
+				return ERROR_FLASH_OPERATION_FAILED;
+			}
+			continue;
+		}
+
+		/* Reset our timeout */
+		timeout = 0;
+
+		/* Limit to the amount of data we actually want to read */
+		if (thisrun_bytes > count * block_size)
+			thisrun_bytes = count * block_size;
+
+		/* Force end of large blocks to be word aligned */
+		if (thisrun_bytes >= 16)
+			thisrun_bytes -= (rp + thisrun_bytes) & 0x03;
+
+		/* Read data from fifo */
+		retval = target_read_buffer(target, rp, thisrun_bytes, buffer);
+		if (retval != ERROR_OK)
+			break;
+
+		/* Update counters and wrap write pointer */
+		buffer += thisrun_bytes;
+		count -= thisrun_bytes / block_size;
+		rp += thisrun_bytes;
+		if (rp >= fifo_end_addr)
+			rp = fifo_start_addr;
+
+		/* Store updated write pointer to target */
+		retval = target_write_u32(target, rp_addr, rp);
+		if (retval != ERROR_OK)
+			break;
+	}
+
+	if (retval != ERROR_OK) {
+		/* abort flash write algorithm on target */
+		target_write_u32(target, rp_addr, 0);
+	}
+
+	int retval2 = target_wait_algorithm(target, num_mem_params, mem_params,
+			num_reg_params, reg_params,
+			exit_point,
+			10000,
+			arch_info);
+
+	if (retval2 != ERROR_OK) {
+		LOG_ERROR("error waiting for target flash write algorithm");
+		retval = retval2;
+	}
+
+	if (retval == ERROR_OK) {
+		/* check if algorithm set wp = 0 after fifo writer loop finished */
+		retval = target_read_u32(target, wp_addr, &wp);
+		if (retval == ERROR_OK && wp == 0) {
+			LOG_ERROR("flash read algorithm aborted by target");
 			retval = ERROR_FLASH_OPERATION_FAILED;
 		}
 	}
@@ -1573,7 +1741,7 @@ int target_unregister_timer_callback(int (*callback)(void *priv), void *priv)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
 	for (struct target_timer_callback *c = target_timer_callbacks;
-	     c; c = c->next) {
+		 c; c = c->next) {
 		if ((c->callback == callback) && (c->priv == priv)) {
 			c->removed = true;
 			return ERROR_OK;
@@ -2062,6 +2230,15 @@ void target_quit(void)
 		target = tmp;
 	}
 
+	if(verify_ranges) {
+		for(size_t i = 0; i < num_verify_ranges; i++)
+			free(verify_ranges[i].target_name);
+
+		free(verify_ranges);
+		verify_ranges = NULL;
+		num_verify_ranges = 0;
+	}
+
 	all_targets = NULL;
 }
 
@@ -2278,14 +2455,30 @@ int target_checksum_memory(struct target *target, target_addr_t address, uint32_
 		return ERROR_FAIL;
 	}
 
-	retval = target->type->checksum_memory(target, address, size, &checksum);
-	if (retval != ERROR_OK) {
+	struct flash_bank *bank;
+	retval = get_flash_bank_by_addr(target, address, false, &bank);
+	if (retval != ERROR_OK)
+		return retval;
+
+	bool use_driver = (bank && !bank->is_memory_mapped);
+
+	if(!use_driver && target->type->checksum_memory)
+		retval = target->type->checksum_memory(target, address, size, &checksum);
+	else
+		retval = ERROR_FAIL;
+
+	if (retval != ERROR_OK || use_driver) {
 		buffer = malloc(size);
 		if (buffer == NULL) {
 			LOG_ERROR("error allocating buffer for section (%" PRId32 " bytes)", size);
 			return ERROR_COMMAND_SYNTAX_ERROR;
 		}
-		retval = target_read_buffer(target, address, size, buffer);
+
+		if(use_driver)
+			retval = flash_driver_read(bank, buffer, address - bank->base, size);
+		else
+			retval = target_read_buffer(target, address, size, buffer);
+
 		if (retval != ERROR_OK) {
 			free(buffer);
 			return retval;
@@ -3538,6 +3731,118 @@ enum verify_mode {
 	IMAGE_CHECKSUM_ONLY = 2
 };
 
+static int add_verify_range(const char *target_name, target_addr_t addr, size_t size)
+{
+	/* Try to merge verify range with existing ones */
+	for(size_t i = 0; i < num_verify_ranges; i++)
+	{
+		struct verify_range *vr = &verify_ranges[i];
+
+		/* Check if target is correct */
+		if(strcmp(target_name, vr->target_name) != 0)
+			continue;
+
+		if(vr->addr <= addr + size && addr <= vr->addr + vr->size)
+		{
+			/* Merge verify ranges and exit */
+			vr->size = MAX(vr->addr + vr->size, addr + size) - MIN(vr->addr, addr);
+			vr->addr = MIN(vr->addr, addr);
+			return ERROR_OK;
+		}
+	}
+
+	/* Add new verify range */
+	void *tmp = realloc(verify_ranges, (num_verify_ranges + 1) * sizeof (struct verify_range));
+	if(tmp == NULL) {
+		LOG_ERROR("unable to allocate memory");
+		return ERROR_FAIL;
+	}
+
+	verify_ranges = tmp;
+
+	verify_ranges[num_verify_ranges].target_name = strdup(target_name);
+	verify_ranges[num_verify_ranges].addr = addr;
+	verify_ranges[num_verify_ranges].size = size;
+	num_verify_ranges++;
+
+	return ERROR_OK;
+}
+
+static int clear_verify_ranges(const char *target_name)
+{
+	size_t tmp_num_ranges = 0;
+	struct verify_range *tmp_ranges = malloc(num_verify_ranges * sizeof(struct verify_range));
+	if(!tmp_ranges) {
+		LOG_ERROR("unable to allocate memory");
+		return ERROR_FAIL;
+	}
+
+	for(size_t i = 0; i < num_verify_ranges; i++) {
+		if(strcmp(target_name, verify_ranges[i].target_name)) {
+			tmp_ranges[tmp_num_ranges].target_name = verify_ranges[i].target_name;
+			tmp_ranges[tmp_num_ranges].addr = verify_ranges[i].addr;
+			tmp_ranges[tmp_num_ranges].size = verify_ranges[i].size;
+			tmp_num_ranges++;
+		} else {
+			free(verify_ranges[i].target_name);
+			verify_ranges[i].target_name = NULL;
+		}
+	}
+
+	/* realloc() with size=0 is not equal to free() */
+	if(!tmp_num_ranges) {
+		num_verify_ranges = 0;
+		free(verify_ranges);
+		verify_ranges = NULL;
+		free(tmp_ranges);
+		return ERROR_OK;
+	}
+
+	void *tmp = realloc(verify_ranges, tmp_num_ranges * sizeof(struct verify_range));
+	if(tmp == NULL) {
+		free(tmp_ranges);
+		LOG_ERROR("unable to allocate memory");
+		return ERROR_FAIL;
+	}
+
+	verify_ranges = tmp;
+	memcpy(verify_ranges, tmp_ranges, tmp_num_ranges * sizeof(struct verify_range));
+	num_verify_ranges = tmp_num_ranges;
+	free(tmp_ranges);
+
+	return ERROR_OK;
+}
+
+static void get_next_verify_range(const char *target_name,
+	target_addr_t sect_addr, size_t sec_size, /* Image section address and size */
+	target_addr_t *ss_addr, size_t *ss_size,  /* Subsection address and size */
+	bool *has_subsect, size_t *first_index)
+{
+	for(size_t i = *first_index; i < num_verify_ranges; i++)
+	{
+		struct verify_range *vr = &verify_ranges[i];
+		if(strcmp(target_name, vr->target_name) != 0)
+			continue;
+
+		/* Current target has at least one subsection defined */
+		*has_subsect = true;
+
+		if(vr->addr <= sect_addr + sec_size && sect_addr <= vr->addr + vr->size)
+		{
+			/* Subsection belongs to current image section - extract verify range */
+			*ss_size = MIN(vr->addr + vr->size, sect_addr + sec_size) - MAX(vr->addr, sect_addr);
+			*ss_addr = MAX(vr->addr, sect_addr);
+			*first_index = i + 1;
+			return;
+		}
+	}
+
+	/* No more subsections */
+	*ss_addr = sect_addr;
+	*ss_size = sec_size;
+	*first_index = 0;
+}
+
 static COMMAND_HELPER(handle_verify_image_command_internal, enum verify_mode verify)
 {
 	uint8_t *buffer;
@@ -3596,72 +3901,97 @@ static COMMAND_HELPER(handle_verify_image_command_internal, enum verify_mode ver
 			break;
 		}
 
-		if (verify >= IMAGE_VERIFY) {
-			/* calculate checksum of image */
-			retval = image_calculate_checksum(buffer, buf_cnt, &checksum);
-			if (retval != ERROR_OK) {
-				free(buffer);
-				break;
-			}
+		size_t subsect_index = 0;
+		bool has_subsect = false;
+		do {
+			size_t subsect_buf_cnt;
+			target_addr_t tmp_subsect_base_addr;
 
-			retval = target_checksum_memory(target, image.sections[i].base_address, buf_cnt, &mem_checksum);
-			if (retval != ERROR_OK) {
-				free(buffer);
-				break;
-			}
-			if ((checksum != mem_checksum) && (verify == IMAGE_CHECKSUM_ONLY)) {
-				LOG_ERROR("checksum mismatch");
-				free(buffer);
-				retval = ERROR_FAIL;
-				goto done;
-			}
-			if (checksum != mem_checksum) {
-				/* failed crc checksum, fall back to a binary compare */
-				uint8_t *data;
+			get_next_verify_range(target->cmd_name,
+						image.sections[i].base_address, image.sections[i].size,
+						&tmp_subsect_base_addr, &subsect_buf_cnt,
+						&has_subsect, &subsect_index);
 
-				if (diffs == 0)
-					LOG_ERROR("checksum mismatch - attempting binary compare");
+			/* Target has subsections defined but they dont belong to current image section - exit */
+			if(subsect_index == 0 && has_subsect) break;
 
-				data = malloc(buf_cnt);
+			/* Adjust starting address of the section buffer and target memory */
+			uint8_t *subsect_buffer = buffer + (tmp_subsect_base_addr - image.sections[i].base_address);
+			target_addr_t subsect_base_addr = tmp_subsect_base_addr;
 
-				/* Can we use 32bit word accesses? */
-				int size = 1;
-				int count = buf_cnt;
-				if ((count % 4) == 0) {
-					size *= 4;
-					count /= 4;
+			if (verify >= IMAGE_VERIFY) {
+				/* calculate checksum of image */
+				retval = image_calculate_checksum(subsect_buffer, subsect_buf_cnt, &checksum);
+				if (retval != ERROR_OK) {
+					free(buffer);
+					goto done;
 				}
-				retval = target_read_memory(target, image.sections[i].base_address, size, count, data);
-				if (retval == ERROR_OK) {
-					uint32_t t;
-					for (t = 0; t < buf_cnt; t++) {
-						if (data[t] != buffer[t]) {
-							command_print(CMD_CTX,
-										  "diff %d address 0x%08x. Was 0x%02x instead of 0x%02x",
-										  diffs,
-										  (unsigned)(t + image.sections[i].base_address),
-										  data[t],
-										  buffer[t]);
-							if (diffs++ >= 127) {
-								command_print(CMD_CTX, "More than 128 errors, the rest are not printed.");
-								free(data);
-								free(buffer);
-								goto done;
-							}
-						}
-						keep_alive();
+
+				retval = target_checksum_memory(target, subsect_base_addr, subsect_buf_cnt, &mem_checksum);
+				if (retval != ERROR_OK) {
+					free(buffer);
+					goto done;
+				}
+				if ((checksum != mem_checksum) && (verify == IMAGE_CHECKSUM_ONLY)) {
+					LOG_ERROR("checksum mismatch");
+					free(buffer);
+					retval = ERROR_FAIL;
+					goto done;
+				}
+				if (checksum != mem_checksum) {
+					/* failed crc checksum, fall back to a binary compare */
+					uint8_t *data;
+
+					if (diffs == 0)
+						LOG_ERROR("checksum mismatch - attempting binary compare");
+
+					data = malloc(subsect_buf_cnt);
+
+					/* Can we use 32bit word accesses? */
+					int size = 1;
+					int count = subsect_buf_cnt;
+					if ((count % 4) == 0) {
+						size *= 4;
+						count /= 4;
 					}
+
+					struct flash_bank *bank;
+					get_flash_bank_by_addr(target, subsect_base_addr, false, &bank);
+					if(bank && !bank->is_memory_mapped)
+						retval = flash_driver_read(bank, data, subsect_base_addr - bank->base, count);
+					else
+						retval = target_read_memory(target, subsect_base_addr, size, count, data);
+
+					if (retval == ERROR_OK) {
+						uint32_t t;
+						for (t = 0; t < subsect_buf_cnt; t++) {
+							if (data[t] != subsect_buffer[t]) {
+								command_print(CMD_CTX,
+											  "diff %d address 0x%08x. Was 0x%02x instead of 0x%02x",
+											  diffs, (unsigned)(t + subsect_base_addr),
+											  data[t], subsect_buffer[t]);
+								if (diffs++ >= 127) {
+									command_print(CMD_CTX, "More than 128 errors, the rest are not printed.");
+									free(data);
+									free(buffer);
+									goto done;
+								}
+							}
+							keep_alive();
+						}
+					}
+					free(data);
 				}
-				free(data);
+			} else {
+				command_print(CMD_CTX, "address " TARGET_ADDR_FMT " length 0x%08zx",
+							  subsect_base_addr,
+							  buf_cnt);
 			}
-		} else {
-			command_print(CMD_CTX, "address " TARGET_ADDR_FMT " length 0x%08zx",
-						  image.sections[i].base_address,
-						  buf_cnt);
-		}
+
+			image_size += subsect_buf_cnt;
+		} while(subsect_index);
 
 		free(buffer);
-		image_size += buf_cnt;
 	}
 	if (diffs > 0)
 		command_print(CMD_CTX, "No more differences found.");
@@ -4587,6 +4917,7 @@ enum target_cfg_param {
 	TCFG_CHAIN_POSITION,
 	TCFG_DBGBASE,
 	TCFG_RTOS,
+	TCFG_RTOS_WIPE_ON_RESET_HALT,
 	TCFG_DEFER_EXAMINE,
 	TCFG_GDB_PORT,
 };
@@ -4603,6 +4934,7 @@ static Jim_Nvp nvp_config_opts[] = {
 	{ .name = "-chain-position",   .value = TCFG_CHAIN_POSITION },
 	{ .name = "-dbgbase",          .value = TCFG_DBGBASE },
 	{ .name = "-rtos",             .value = TCFG_RTOS },
+	{ .name = "-rtos-wipe-on-reset-halt", .value = TCFG_RTOS_WIPE_ON_RESET_HALT },
 	{ .name = "-defer-examine",    .value = TCFG_DEFER_EXAMINE },
 	{ .name = "-gdb-port",         .value = TCFG_GDB_PORT },
 	{ .name = NULL, .value = -1 }
@@ -4883,6 +5215,23 @@ no_params:
 				if (result != JIM_OK)
 					return result;
 			}
+			/* loop for more */
+			break;
+
+		case TCFG_RTOS_WIPE_ON_RESET_HALT:
+			/* RTOS */
+			if (goi->isconfigure) {
+				target_free_all_working_areas(target);
+				e = Jim_GetOpt_Wide(goi, &w);
+				if (e != JIM_OK)
+					return e;
+				/* make this exactly 1 or 0 */
+				target->rtos_wipe_on_reset_halt = (!!w);
+			} else {
+				if (goi->argc != 0)
+					goto no_params;
+			}
+			Jim_SetResult(goi->interp, Jim_NewIntObj(goi->interp, target->rtos_wipe_on_reset_halt));
 			/* loop for more */
 			break;
 
@@ -5184,7 +5533,7 @@ static int jim_target_examine(Jim_Interp *interp, int argc, Jim_Obj *const *argv
 		return JIM_ERR;
 	}
 	if (goi.argc > 0 &&
-	    strcmp(Jim_GetString(argv[1], NULL), "allow-defer") == 0) {
+		strcmp(Jim_GetString(argv[1], NULL), "allow-defer") == 0) {
 		/* consume it */
 		struct Jim_Obj *obj;
 		int e = Jim_GetOpt_Obj(&goi, &obj);
@@ -6084,6 +6433,45 @@ COMMAND_HANDLER(handle_fast_load_command)
 	return retval;
 }
 
+COMMAND_HANDLER(handle_add_verify_range_command)
+{
+	if(CMD_ARGC != 3)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	target_addr_t addr;
+	COMMAND_PARSE_ADDRESS(CMD_ARGV[1], addr);
+
+	uint32_t size;
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], size);
+
+	if(size == 0) {
+		LOG_ERROR("size can not be zero");
+		return ERROR_COMMAND_ARGUMENT_INVALID;
+	}
+
+	return add_verify_range(CMD_ARGV[0], addr, size);
+}
+
+COMMAND_HANDLER(handle_clear_verify_ranges_command)
+{
+	if(CMD_ARGC != 1)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	return clear_verify_ranges(CMD_ARGV[0]);
+}
+
+COMMAND_HANDLER(handle_show_verify_ranges_command)
+{
+	if(CMD_ARGC)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	for(size_t i = 0; i < num_verify_ranges; i++) {
+		command_print(CMD_CTX, "%s  0x%08X 0x%08X", verify_ranges[i].target_name,
+					  (uint32_t)verify_ranges[i].addr, (uint32_t)verify_ranges[i].size);
+	}
+	return ERROR_OK;
+}
+
 static const struct command_registration target_command_handlers[] = {
 	{
 		.name = "targets",
@@ -6092,6 +6480,24 @@ static const struct command_registration target_command_handlers[] = {
 		.help = "change current default target (one parameter) "
 			"or prints table of all targets (no parameters)",
 		.usage = "[target]",
+	},
+	{
+		.name = "add_verify_range",
+		.handler = handle_add_verify_range_command,
+		.mode = COMMAND_ANY,
+		.usage = "target address size",
+	},
+	{
+		.name = "show_verify_ranges",
+		.handler = handle_show_verify_ranges_command,
+		.mode = COMMAND_ANY,
+		.usage = "",
+	},
+	{
+		.name = "clear_verify_ranges",
+		.handler = handle_clear_verify_ranges_command,
+		.mode = COMMAND_ANY,
+		.usage = "target",
 	},
 	{
 		.name = "target",

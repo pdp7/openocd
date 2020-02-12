@@ -22,6 +22,7 @@
 #include "arm_adi_v5.h"
 
 #include <jtag/jtag.h>
+#include <jtag/interface.h>
 
 struct mem_ap {
 	struct arm arm;
@@ -104,6 +105,17 @@ static int mem_ap_step(struct target *target, int current, target_addr_t address
 
 static int mem_ap_assert_reset(struct target *target)
 {
+	if (target_has_event_action(target, TARGET_EVENT_RESET_ASSERT)) {
+		/* allow scripts to override the reset event */
+		target_handle_event(target, TARGET_EVENT_RESET_ASSERT);
+		target->state = TARGET_RESET;
+		return ERROR_OK;
+	}
+
+	enum reset_types jtag_reset_config = jtag_get_reset_config();
+	if (jtag_reset_config & RESET_HAS_SRST)
+		adapter_assert_reset();
+
 	target->state = TARGET_RESET;
 
 	LOG_DEBUG("%s", __func__);
@@ -114,18 +126,21 @@ static int mem_ap_examine(struct target *target)
 {
 	struct mem_ap *mem_ap = target->arch_info;
 
-	if (!target_was_examined(target)) {
-		mem_ap->ap = dap_ap(mem_ap->arm.dap, mem_ap->ap_num);
-		target_set_examined(target);
-		target->state = TARGET_UNKNOWN;
-		return mem_ap_init(mem_ap->ap);
-	}
-
-	return ERROR_OK;
+	mem_ap->ap = dap_ap(mem_ap->arm.dap, mem_ap->ap_num);
+	target_set_examined(target);
+	target->state = TARGET_UNKNOWN;
+	return mem_ap_init(mem_ap->ap);
 }
 
 static int mem_ap_deassert_reset(struct target *target)
 {
+	enum reset_types jtag_reset_config = jtag_get_reset_config();
+	if (jtag_reset_config & RESET_HAS_SRST)
+		adapter_deassert_reset();
+
+	struct mem_ap *mem_ap = target->arch_info;
+	dap_dp_init(mem_ap->arm.dap);
+
 	if (target->reset_halt)
 		target->state = TARGET_HALTED;
 	else
@@ -136,7 +151,7 @@ static int mem_ap_deassert_reset(struct target *target)
 }
 
 static int mem_ap_read_memory(struct target *target, target_addr_t address,
-			       uint32_t size, uint32_t count, uint8_t *buffer)
+				   uint32_t size, uint32_t count, uint8_t *buffer)
 {
 	struct mem_ap *mem_ap = target->arch_info;
 

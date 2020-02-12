@@ -195,6 +195,8 @@ struct target {
 	struct rtos *rtos;					/* Instance of Real Time Operating System support */
 	bool rtos_auto_detect;				/* A flag that indicates that the RTOS has been specified as "auto"
 										 * and must be detected when symbols are offered */
+	bool rtos_wipe_on_reset_halt;
+
 	struct backoff_timer backoff;
 	int smp;							/* add some target attributes for smp support */
 	struct target_list *head;
@@ -554,6 +556,18 @@ int target_wait_algorithm(struct target *target,
  */
 int target_run_flash_async_algorithm(struct target *target,
 		const uint8_t *buffer, uint32_t count, int block_size,
+		int num_mem_params, struct mem_param *mem_params,
+		int num_reg_params, struct reg_param *reg_params,
+		uint32_t buffer_start, uint32_t buffer_size,
+		uint32_t entry_point, uint32_t exit_point,
+		void *arch_info);
+
+/**
+ * This routine is a wrapper for asynchronous algorithms.
+ *
+ */
+int target_run_read_async_algorithm(struct target *target,
+		uint8_t *buffer, uint32_t count, int block_size,
 		int num_mem_params, struct mem_param *mem_params,
 		int num_reg_params, struct reg_param *reg_params,
 		uint32_t buffer_start, uint32_t buffer_size,

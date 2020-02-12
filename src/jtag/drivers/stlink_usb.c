@@ -683,8 +683,8 @@ static int stlink_usb_xfer_noerrcheck(void *handle, const uint8_t *buf, int size
 }
 
 /**
-    Converts an STLINK status code held in the first byte of a response
-    to an openocd error, logs any error/wait status as debug output.
+	Converts an STLINK status code held in the first byte of a response
+	to an openocd error, logs any error/wait status as debug output.
 */
 static int stlink_usb_error_check(void *handle)
 {
@@ -789,10 +789,10 @@ static int stlink_usb_xfer_errcheck(void *handle, const uint8_t *buf, int size)
 
 /** Issue an STLINK command via USB transfer, with retries on any wait status responses.
 
-    Works for commands where the STLINK_DEBUG status is returned in the first
-    byte of the response packet. For SWIM a SWIM_READSTATUS is requested instead.
+	Works for commands where the STLINK_DEBUG status is returned in the first
+	byte of the response packet. For SWIM a SWIM_READSTATUS is requested instead.
 
-    Returns an openocd result code.
+	Returns an openocd result code.
 */
 static int stlink_cmd_allow_retry(void *handle, const uint8_t *buf, int size)
 {
@@ -816,7 +816,7 @@ static int stlink_cmd_allow_retry(void *handle, const uint8_t *buf, int size)
 		res = stlink_usb_error_check(handle);
 		if (res == ERROR_WAIT && retries < MAX_WAIT_RETRIES) {
 			useconds_t delay_us = (1<<retries++) * 1000;
-			LOG_DEBUG("stlink_cmd_allow_retry ERROR_WAIT, retry %d, delaying %u microseconds", retries, delay_us);
+			LOG_DEBUG("stlink_cmd_allow_retry ERROR_WAIT, retry %d, delaying %u microseconds", retries, (unsigned int)delay_us);
 			usleep(delay_us);
 			continue;
 		}

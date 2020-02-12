@@ -1,0 +1,172 @@
+   1              		.cpu cortex-m0plus
+   2              		.eabi_attribute 20, 1
+   3              		.eabi_attribute 21, 1
+   4              		.eabi_attribute 23, 3
+   5              		.eabi_attribute 24, 1
+   6              		.eabi_attribute 25, 1
+   7              		.eabi_attribute 26, 1
+   8              		.eabi_attribute 30, 4
+   9              		.eabi_attribute 34, 0
+  10              		.eabi_attribute 18, 4
+  11              		.file	"psoc6_write.c"
+  12              		.text
+  13              		.align	1
+  14              		.global	write
+  15              		.arch armv6s-m
+  16              		.syntax unified
+  17              		.code	16
+  18              		.thumb_func
+  19              		.fpu softvfp
+  21              	write:
+  22              		@ Volatile: function does not return.
+  23              		@ args = 0, pretend = 0, frame = 24
+  24              		@ frame_needed = 0, uses_anonymous_args = 0
+  25 0000 F0B5     		push	{r4, r5, r6, r7, lr}
+  26 0002 87B0     		sub	sp, sp, #28
+  27 0004 0091     		str	r1, [sp]
+  28              		.syntax divided
+  29              	@ 119 "psoc6_write.c" 1
+  30 0006 62B6     		cpsie i
+  31              	@ 0 "" 2
+  32              		.thumb
+  33              		.syntax unified
+  34 0008 140E     		lsrs	r4, r2, #24
+  35 000a 142C     		cmp	r4, #20
+  36 000c 22D1     		bne	.L14
+  37 000e 344C     		ldr	r4, .L23
+  38 0010 2568     		ldr	r5, [r4]
+  39 0012 0424     		movs	r4, #4
+  40 0014 2D0F     		lsrs	r5, r5, #28
+  41 0016 012D     		cmp	r5, #1
+  42 0018 05D9     		bls	.L2
+  43 001a 324C     		ldr	r4, .L23+4
+  44 001c 2468     		ldr	r4, [r4]
+  45 001e A4B2     		uxth	r4, r4
+  46 0020 BA2C     		cmp	r4, #186
+  47 0022 17D8     		bhi	.L14
+  48 0024 0424     		movs	r4, #4
+  49              	.L2:
+  50 0026 8025     		movs	r5, #128
+  51 0028 0026     		movs	r6, #0
+  52 002a 2D06     		lsls	r5, r5, #24
+  53              	.L3:
+  54 002c 6D08     		lsrs	r5, r5, #1
+  55 002e 0136     		adds	r6, r6, #1
+  56 0030 2C42     		tst	r4, r5
+  57 0032 FBD0     		beq	.L3
+  58 0034 1F25     		movs	r5, #31
+  59 0036 AD1B     		subs	r5, r5, r6
+  60 0038 8026     		movs	r6, #128
+  61 003a 7600     		lsls	r6, r6, #1
+  62 003c 2E43     		orrs	r6, r5
+  63 003e F51E     		subs	r5, r6, #3
+  64 0040 FF3D     		subs	r5, r5, #255
+  65 0042 B446     		mov	ip, r6
+  66 0044 6E1E     		subs	r6, r5, #1
+  67 0046 B541     		sbcs	r5, r5, r6
+  68 0048 6942     		rsbs	r1, r5, #0
+  69 004a 0191     		str	r1, [sp, #4]
+  70              	.L4:
+  71 004c 002B     		cmp	r3, #0
+  72 004e 04D1     		bne	.L5
+  73              	.L11:
+  74              		.syntax divided
+  75              	@ 147 "psoc6_write.c" 1
+  76 0050 00BE     		bkpt 0
+  77              	@ 0 "" 2
+  78              		.thumb
+  79              		.syntax unified
+  80 0052 FDE7     		b	.L11
+  81              	.L14:
+  82 0054 8024     		movs	r4, #128
+  83 0056 A400     		lsls	r4, r4, #2
+  84 0058 E5E7     		b	.L2
+  85              	.L5:
+  86 005a 4668     		ldr	r6, [r0, #4]
+  87 005c 0568     		ldr	r5, [r0]
+  88 005e AE42     		cmp	r6, r5
+  89 0060 FBD0     		beq	.L5
+  90 0062 4668     		ldr	r6, [r0, #4]
+  91 0064 150E     		lsrs	r5, r2, #24
+  92 0066 142D     		cmp	r5, #20
+  93 0068 38D1     		bne	.L15
+  94 006a A825     		movs	r5, #168
+  95 006c 0199     		ldr	r1, [sp, #4]
+  96 006e AD05     		lsls	r5, r5, #22
+  97 0070 0D40     		ands	r5, r1
+  98 0072 1D49     		ldr	r1, .L23+8
+  99 0074 6D18     		adds	r5, r5, r1
+ 100              	.L6:
+ 101 0076 6146     		mov	r1, ip
+ 102 0078 0295     		str	r5, [sp, #8]
+ 103 007a 1C4D     		ldr	r5, .L23+12
+ 104 007c 0391     		str	r1, [sp, #12]
+ 105 007e 0492     		str	r2, [sp, #16]
+ 106 0080 0596     		str	r6, [sp, #20]
+ 107 0082 2E68     		ldr	r6, [r5]
+ 108 0084 F025     		movs	r5, #240
+ 109 0086 2D01     		lsls	r5, r5, #4
+ 110 0088 2E40     		ands	r6, r5
+ 111 008a 751E     		subs	r5, r6, #1
+ 112 008c AE41     		sbcs	r6, r6, r5
+ 113 008e 1849     		ldr	r1, .L23+16
+ 114 0090 F6B2     		uxtb	r6, r6
+ 115 0092 7518     		adds	r5, r6, r1
+ 116 0094 6D01     		lsls	r5, r5, #5
+ 117              	.L7:
+ 118 0096 2F68     		ldr	r7, [r5]
+ 119 0098 002F     		cmp	r7, #0
+ 120 009a FCDA     		bge	.L7
+ 121 009c 1036     		adds	r6, r6, #16
+ 122 009e 3700     		movs	r7, r6
+ 123 00a0 0126     		movs	r6, #1
+ 124 00a2 02A9     		add	r1, sp, #8
+ 125 00a4 E960     		str	r1, [r5, #12]
+ 126 00a6 3100     		movs	r1, r6
+ 127 00a8 B940     		lsls	r1, r1, r7
+ 128 00aa 124F     		ldr	r7, .L23+20
+ 129 00ac 3960     		str	r1, [r7]
+ 130 00ae AE60     		str	r6, [r5, #8]
+ 131              	.L8:
+ 132 00b0 EE69     		ldr	r6, [r5, #28]
+ 133 00b2 002E     		cmp	r6, #0
+ 134 00b4 FCDB     		blt	.L8
+ 135 00b6 029D     		ldr	r5, [sp, #8]
+ 136 00b8 2E0F     		lsrs	r6, r5, #28
+ 137 00ba 0A2E     		cmp	r6, #10
+ 138 00bc 03D0     		beq	.L9
+ 139 00be 0026     		movs	r6, #0
+ 140 00c0 4660     		str	r6, [r0, #4]
+ 141              		.syntax divided
+ 142              	@ 130 "psoc6_write.c" 1
+ 143 00c2 281C     		mov r0, r5
+ 144 00c4 00BE     		bkpt 0
+ 145              	@ 0 "" 2
+ 146              		.thumb
+ 147              		.syntax unified
+ 148              	.L9:
+ 149 00c6 4568     		ldr	r5, [r0, #4]
+ 150 00c8 0099     		ldr	r1, [sp]
+ 151 00ca 2D19     		adds	r5, r5, r4
+ 152 00cc 1219     		adds	r2, r2, r4
+ 153 00ce 8D42     		cmp	r5, r1
+ 154 00d0 01D3     		bcc	.L10
+ 155 00d2 0500     		movs	r5, r0
+ 156 00d4 0835     		adds	r5, r5, #8
+ 157              	.L10:
+ 158 00d6 4560     		str	r5, [r0, #4]
+ 159 00d8 013B     		subs	r3, r3, #1
+ 160 00da B7E7     		b	.L4
+ 161              	.L15:
+ 162 00dc 024D     		ldr	r5, .L23+8
+ 163 00de CAE7     		b	.L6
+ 164              	.L24:
+ 165              		.align	2
+ 166              	.L23:
+ 167 00e0 04200017 		.word	385884164
+ 168 00e4 18200017 		.word	385884184
+ 169 00e8 00010006 		.word	100663552
+ 170 00ec 00002040 		.word	1075838976
+ 171 00f0 00100102 		.word	33624064
+ 172 00f4 08102240 		.word	1075974152
+ 174              		.ident	"GCC: (bleeding-edge-toolchain) 8.2.0"

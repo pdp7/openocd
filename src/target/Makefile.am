@@ -36,6 +36,7 @@ endif
 
 TARGET_CORE_SRC = \
 	%D%/algorithm.c \
+	%D%/cmsis_algorithm.c \
 	%D%/register.c \
 	%D%/image.c \
 	%D%/breakpoints.c \
@@ -148,6 +149,7 @@ ESIRISC_SRC = \
 
 %C%_libtarget_la_SOURCES += \
 	%D%/algorithm.h \
+	%D%/cmsis_algorithm.h \
 	%D%/arm.h \
 	%D%/arm_dpm.h \
 	%D%/arm_jtag.h \

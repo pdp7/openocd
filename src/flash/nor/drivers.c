@@ -36,6 +36,8 @@ extern const struct flash_driver bluenrgx_flash;
 extern const struct flash_driver cc3220sf_flash;
 extern const struct flash_driver cc26xx_flash;
 extern const struct flash_driver cfi_flash;
+extern const struct flash_driver cmsis_flash;
+extern const struct flash_driver cmspi_flash;
 extern const struct flash_driver dsp5680xx_flash;
 extern const struct flash_driver efm32_flash;
 extern const struct flash_driver em357_flash;
@@ -65,7 +67,10 @@ extern const struct flash_driver psoc4_flash;
 extern const struct flash_driver psoc5lp_flash;
 extern const struct flash_driver psoc5lp_eeprom_flash;
 extern const struct flash_driver psoc5lp_nvl_flash;
+extern const struct flash_driver psoc6_efuse;
+extern const struct flash_driver psoc6_2m_efuse;
 extern const struct flash_driver psoc6_flash;
+extern const struct flash_driver psoc6_2m_flash;
 extern const struct flash_driver sim3x_flash;
 extern const struct flash_driver stellaris_flash;
 extern const struct flash_driver stm32f1x_flash;
@@ -78,6 +83,10 @@ extern const struct flash_driver str7x_flash;
 extern const struct flash_driver str9x_flash;
 extern const struct flash_driver str9xpec_flash;
 extern const struct flash_driver tms470_flash;
+extern const struct flash_driver traveo21_efuse;
+extern const struct flash_driver traveo22_efuse;
+extern const struct flash_driver traveo21_flash;
+extern const struct flash_driver traveo22_flash;
 extern const struct flash_driver virtual_flash;
 extern const struct flash_driver w600_flash;
 extern const struct flash_driver xcf_flash;
@@ -105,6 +114,8 @@ static const struct flash_driver * const flash_drivers[] = {
 	&cc3220sf_flash,
 	&cc26xx_flash,
 	&cfi_flash,
+	&cmsis_flash,
+	&cmspi_flash,
 	&dsp5680xx_flash,
 	&efm32_flash,
 	&em357_flash,
@@ -134,7 +145,10 @@ static const struct flash_driver * const flash_drivers[] = {
 	&psoc5lp_flash,
 	&psoc5lp_eeprom_flash,
 	&psoc5lp_nvl_flash,
+	&psoc6_efuse,
+	&psoc6_2m_efuse,
 	&psoc6_flash,
+	&psoc6_2m_flash,
 	&sim3x_flash,
 	&stellaris_flash,
 	&stm32f1x_flash,
@@ -147,6 +161,10 @@ static const struct flash_driver * const flash_drivers[] = {
 	&str9x_flash,
 	&str9xpec_flash,
 	&tms470_flash,
+	&traveo21_efuse,
+	&traveo22_efuse,
+	&traveo21_flash,
+	&traveo22_flash,
 	&virtual_flash,
 	&xcf_flash,
 	&xmc1xxx_flash,

@@ -215,6 +215,12 @@ struct adiv5_dap {
 	/* dap transaction list for WAIT support */
 	struct list_head cmd_journal;
 
+	/* pool for dap_cmd objects */
+	struct list_head cmd_pool;
+
+	/* number of dap_cmd objects in the pool */
+	size_t cmd_pool_size;
+
 	struct jtag_tap *tap;
 	/* Control config */
 	uint32_t dp_ctrl_stat;
@@ -424,7 +430,7 @@ static inline int dap_sync(struct adiv5_dap *dap)
 }
 
 static inline int dap_dp_read_atomic(struct adiv5_dap *dap, unsigned reg,
-				     uint32_t *value)
+					 uint32_t *value)
 {
 	int retval;
 
@@ -436,7 +442,7 @@ static inline int dap_dp_read_atomic(struct adiv5_dap *dap, unsigned reg,
 }
 
 static inline int dap_dp_poll_register(struct adiv5_dap *dap, unsigned reg,
-				       uint32_t mask, uint32_t value, int timeout)
+					   uint32_t mask, uint32_t value, int timeout)
 {
 	assert(timeout > 0);
 	assert((value & mask) == value);

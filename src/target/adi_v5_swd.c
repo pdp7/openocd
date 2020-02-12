@@ -311,11 +311,13 @@ static int swd_run(struct adiv5_dap *dap)
 /** Put the SWJ-DP back to JTAG mode */
 static void swd_quit(struct adiv5_dap *dap)
 {
+#if(1) /* Breaks PSoC devices */
 	const struct swd_driver *swd = adiv5_dap_swd_driver(dap);
 
 	swd->switch_seq(SWD_TO_JTAG);
 	/* flush the queue before exit */
 	swd->run();
+#endif
 }
 
 const struct dap_ops swd_dap_ops = {

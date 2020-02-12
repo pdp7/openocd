@@ -531,10 +531,10 @@ COMMAND_HANDLER(handle_flash_fill_command)
 
 	if (padding_at_start) {
 		memset(buffer, bank->default_padded_value, padding_at_start);
-		LOG_WARNING("Start address " TARGET_ADDR_FMT
+		LOG_INFO("Start address " TARGET_ADDR_FMT
 			" breaks the required alignment of flash bank %s",
 			address, bank->name);
-		LOG_WARNING("Padding %" PRId32 " bytes from " TARGET_ADDR_FMT,
+		LOG_INFO("Padding %" PRId32 " bytes from " TARGET_ADDR_FMT,
 		    padding_at_start, aligned_start);
 	}
 
@@ -613,6 +613,219 @@ done:
 	return retval;
 }
 
+/**
+ * @brief Converts single character to corresponding binary nibble
+ * @param c character (0...9, a...f, A...F)
+ * @param buf pointer to output
+ * @param is_msb
+ * @return ERROR_OK in case of success, ERROR_XXX code otherwise
+ */
+static int nibble_from_char(char c, uint8_t *buf, bool is_msb)
+{
+	if (c >= '0' && c <= '9')
+		*buf |= (c - '0') << (is_msb ? 4 : 0);
+	else if (c >= 'a' && c <= 'f')
+		*buf |= (c - 'a' + 10) << (is_msb ? 4 : 0);
+	else if (c >= 'A' && c <= 'F')
+		*buf |= (c - 'A' + 10) << (is_msb ? 4 : 0);
+	else {
+		LOG_ERROR("Invalid characters in hex string");
+		return ERROR_COMMAND_ARGUMENT_INVALID;
+	}
+
+	return ERROR_OK;
+}
+
+/**
+ * @brief Converts a string in form of '1234abcd...' to a byte buffer { 0x12, 0x34, 0xab, 0xcd, ... }
+ * Function allocates memory for the target buffer. Caller is responsible for freing the bufer when
+ * it is no longer required.
+ * @param str pointer to the hex string
+ * @param buffer pointer will be populated with the address of allocated buffer
+ * @param size pointer will be populated with the size of the buffer, in bytes
+ * @return ERROR_OK in case of success, ERROR_XXX code otherwise
+ */
+static int byte_buffer_from_string(const char *str, uint8_t **buffer, size_t *size)
+{
+	int hr;
+
+	/* Ensure input hex string has even length */
+	int len = strlen(str);
+	if (len % 2) {
+		LOG_ERROR("Length of hex string is not a multiple of two");
+		return ERROR_COMMAND_ARGUMENT_INVALID;
+	}
+
+	/* Allocate output buffer */
+	size_t buf_size= len / 2;
+	uint8_t *buf = malloc(buf_size);
+	if (buf == NULL) {
+		LOG_ERROR("Unable to allocate memory");
+		return ERROR_FAIL;
+	}
+
+	*buffer = buf;
+	*size = buf_size;
+
+	/* Loop through all characters and convert them to bytes */
+	while (*str) {
+		*buf = 0;
+		hr = nibble_from_char(*str++, buf, true);
+		if (hr != ERROR_OK)
+			goto cleanup;
+
+		hr = nibble_from_char(*str++, buf++, false);
+		if (hr != ERROR_OK)
+			goto cleanup;
+	}
+
+	return ERROR_OK;
+
+cleanup:
+	free(buf);
+	*buffer = NULL;
+	*size = 0;
+
+	return hr;
+}
+
+COMMAND_HANDLER(handle_flash_rmw_command)
+{
+	target_addr_t rmw_address;
+	struct target *target = get_current_target(CMD_CTX);
+	bool verify = false;
+	int hr;
+
+	if (CMD_ARGC < 2 || CMD_ARGC > 3)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+#if BUILD_TARGET64
+	COMMAND_PARSE_NUMBER(u64, CMD_ARGV[0], rmw_address);
+#else
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], rmw_address);
+#endif
+
+	if (CMD_ARGC == 3) {
+		if (strcmp(CMD_ARGV[2], "verify") == 0)
+			verify = true;
+		else
+			return ERROR_COMMAND_SYNTAX_ERROR;
+	}
+
+	struct flash_bank *bank;
+	hr = get_flash_bank_by_addr(target, rmw_address, true, &bank);
+	if (hr != ERROR_OK)
+		return hr;
+
+	/* Parse hex string to byte buffer */
+	uint8_t *rmw_buf;
+	size_t rmw_size;
+	hr = byte_buffer_from_string(CMD_ARGV[1], &rmw_buf, &rmw_size);
+	if (hr != ERROR_OK)
+		return hr;
+
+	if (rmw_address + rmw_size > bank->base + bank->size) {
+		LOG_ERROR("Cannot cross flash bank borders");
+		hr = ERROR_FAIL;
+		goto free_rmw_buf;
+	}
+
+	/* We are going to erase one or more sectors so start and end addresses have to be
+	 * properly aligned to sector boundary. Substitute write_start_alignment and write_end_alignment
+	 * with FLASH_WRITE_ALIGN_SECTOR temporarily and reuse builtin alignment functions
+	 */
+	const uint32_t write_start_alignment = bank->write_start_alignment;
+	const uint32_t write_end_alignment = bank->write_end_alignment;
+	bank->write_start_alignment = FLASH_WRITE_ALIGN_SECTOR;
+	bank->write_end_alignment = FLASH_WRITE_ALIGN_SECTOR;
+
+	const target_addr_t rmw_start_aligned = flash_write_align_start(bank, rmw_address);
+	const target_addr_t rmw_end_aligned = flash_write_align_end(bank, rmw_address + rmw_size - 1);
+	const uint32_t rmw_size_aligned = rmw_end_aligned - rmw_start_aligned + 1;
+
+	/* Restore original write_start_alignment and write_end_alignment */
+	bank->write_start_alignment = write_start_alignment;
+	bank->write_end_alignment = write_end_alignment;
+
+	uint8_t *rmw_buf_aligned = malloc(rmw_size_aligned);
+	if (rmw_buf_aligned == NULL) {
+		LOG_ERROR("Unable to allocate memory");
+		hr = ERROR_FAIL;
+		goto free_rmw_buf;
+	}
+
+	struct duration bench;
+	duration_start(&bench);
+
+	/* Perform Read-Modify-Erase-Write-Verify sequence */
+	const uint32_t target_bank_offset = rmw_start_aligned - bank->base;
+	hr = flash_driver_read(bank, rmw_buf_aligned, target_bank_offset, rmw_size_aligned);
+	if (hr != ERROR_OK)
+		goto free_rmw_aligned_buf;
+
+	memcpy(&rmw_buf_aligned[rmw_address - rmw_start_aligned], rmw_buf, rmw_size);
+
+	hr = flash_erase_address_range(bank->target, false, rmw_start_aligned, rmw_size_aligned);
+	if (hr != ERROR_OK)
+		goto free_rmw_aligned_buf;
+
+	hr = flash_driver_write(bank, rmw_buf_aligned, target_bank_offset, rmw_size_aligned);
+	if (hr != ERROR_OK)
+		goto free_rmw_aligned_buf;
+
+	hr = duration_measure(&bench);
+	if (hr != ERROR_OK)
+		goto free_rmw_aligned_buf;
+
+	command_print(CMD_CTX, "modified %" PRIu32 " byte(s) in %" PRIu32 " byte region at "
+		TARGET_ADDR_FMT " in %fs (%0.3f KiB/s)", (uint32_t)rmw_size, rmw_size_aligned,
+		rmw_start_aligned, duration_elapsed(&bench),
+		duration_kbps(&bench, rmw_size_aligned));
+
+	if (verify) {
+		duration_start(&bench);
+
+		uint8_t *verify_buf = malloc(rmw_size_aligned);
+		if (verify_buf == NULL) {
+			LOG_ERROR("Unable to allocate memory");
+			hr = ERROR_FAIL;
+			goto free_rmw_aligned_buf;
+		}
+
+		hr = flash_driver_read(bank, verify_buf, target_bank_offset, rmw_size_aligned);
+		if (hr != ERROR_OK)
+			goto free_verify_buffer;
+
+		for (size_t i = 0; i < rmw_size_aligned; i++) {
+			if (rmw_buf_aligned[i] != verify_buf[i]) {
+				LOG_ERROR("Verification error address " TARGET_ADDR_FMT
+					", read back 0x%02" PRIx32 ", expected 0x%02" PRIx32,
+					rmw_start_aligned + i, verify_buf[i], rmw_buf_aligned[i]);
+				hr = ERROR_FAIL;
+				break;
+			}
+		}
+
+		hr = duration_measure(&bench);
+		if (hr != ERROR_OK)
+			goto free_verify_buffer;
+
+		command_print(CMD_CTX, "verified %" PRIu32 " bytes in %fs (%0.3f KiB/s)",
+			rmw_size_aligned, duration_elapsed(&bench),
+			duration_kbps(&bench, rmw_size_aligned));
+
+free_verify_buffer:
+		free(verify_buf);
+	}
+
+free_rmw_aligned_buf:
+	free(rmw_buf_aligned);
+free_rmw_buf:
+	free(rmw_buf);
+
+	return hr;
+}
+
 COMMAND_HANDLER(handle_flash_write_bank_command)
 {
 	uint32_t offset;
@@ -681,10 +894,10 @@ COMMAND_HANDLER(handle_flash_write_bank_command)
 
 	if (padding_at_start) {
 		memset(buffer, bank->default_padded_value, padding_at_start);
-		LOG_WARNING("Start offset 0x%08" PRIx32
+		LOG_INFO("Start offset 0x%08" PRIx32
 			" breaks the required alignment of flash bank %s",
 			offset, bank->name);
-		LOG_WARNING("Padding %" PRId32 " bytes from " TARGET_ADDR_FMT,
+		LOG_INFO("Padding %" PRId32 " bytes from " TARGET_ADDR_FMT,
 		    padding_at_start, aligned_start);
 	}
 
@@ -1011,6 +1224,15 @@ static const struct command_registration flash_exec_command_handlers[] = {
 			"word address.  (No autoerase.)",
 	},
 	{
+		.name = "rmw",
+		.handler = handle_flash_rmw_command,
+		.mode = COMMAND_EXEC,
+		.usage = "address hex_string [verify]",
+		.help = "Performs read-modify-write operation. "
+			"Allows to alter any bytes in the flash leaving surrounding data untouched. "
+			"hex_string should be in form of '11223344aabbccdd' without 0x prefix.",
+	},
+	{
 		.name = "fillh",
 		.handler = handle_flash_fill_command,
 		.mode = COMMAND_EXEC,
@@ -1142,6 +1364,11 @@ COMMAND_HANDLER(handle_flash_bank_command)
 	COMMAND_PARSE_NUMBER(int, CMD_ARGV[4], c->bus_width);
 	c->default_padded_value = c->erased_value = 0xff;
 	c->minimal_write_gap = FLASH_WRITE_GAP_SECTOR;
+	c->is_memory_mapped = true;
+
+	for(size_t i = 6; i < CMD_ARGC; i++)
+		if(strcmp(CMD_ARGV[i], "external") == 0)
+			c->is_memory_mapped = false;
 
 	int retval;
 	retval = CALL_COMMAND_HANDLER(driver->flash_bank_command, c);
