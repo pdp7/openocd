@@ -18,6 +18,10 @@ Cypress is  working at merging these modifications into the official OpenOCD. In
 
 This software component is licensed under GNU General Public License v2
 
+### FOSS usage
+
+Cypress maintains a collection of [Free and Open Source Software]( https://www.cypress.com/documentation/software-and-drivers/modustoolbox-foss-packages) (FOSS) packages. It includes OpenOCD.
+
 ### More Information
 
 [openOCD Release Notes](https://github.com/cypresssemiconductorco/openocd/blob/cypress/RELEASE.MD)
