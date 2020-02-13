@@ -10,7 +10,7 @@ To work with ModusToolbox and Cypress devices and probes, Cypress has modified O
 - KitProg3 onboard programmer
 - MiniProg4 standalone programmer
 
-From the release page, download and unpack the appropriate archive for your OS. You do not need the source code. 
+From the [release page](https://github.com/cypresssemiconductorco/openocd/releases), download and unpack the appropriate archive for your OS. You do not need the source code. 
 
 If you want to update ModusToolbox to use this release, replace the contents of the  */ModusToolbox/tools_2.0/openocd* folder with the downloaded package from the release page. Otherwise just put the tool in any convenient location. 
 
