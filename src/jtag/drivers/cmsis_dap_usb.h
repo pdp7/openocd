@@ -16,8 +16,9 @@ struct cmsis_dap {
 
 extern struct cmsis_dap *cmsis_dap_handle;
 extern const struct command_registration cmsis_dap_command_handlers[];
-extern const struct swd_driver cmsis_dap_swd_driver;
+extern struct adapter_driver cmsis_dap_adapter_driver;
 extern struct jtag_interface cmsis_dap_interface;
+extern const struct swd_driver cmsis_dap_swd_driver;
 
 int cmsis_dap_usb_write(struct cmsis_dap *dap, int txlen);
 int cmsis_dap_usb_read(struct cmsis_dap *dap);

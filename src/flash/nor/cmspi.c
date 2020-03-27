@@ -307,7 +307,7 @@ FLASH_BANK_COMMAND_HANDLER(cmspi_flash_bank_command)
 
 	COMMAND_PARSE_NUMBER(u16, CMD_ARGV[index++], temp);
 	if ((temp & ~(0xFFU << 2)) != 0) {
-		command_print(CMD_CTX, "cmspi: inp offset must be 10-bit, word aligned");
+		command_print(CMD, "cmspi: inp offset must be 10-bit, word aligned");
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 	cmspi_info->inp_off = temp >> 2;		/* convert byte offset to word offset */
@@ -326,14 +326,14 @@ FLASH_BANK_COMMAND_HANDLER(cmspi_flash_bank_command)
 		/* handle NCS and CLK pins */
 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[index++], cmspi_info->ncs.addr);
 		if (cmspi_info->ncs.addr & 0x3) {
-			command_print(CMD_CTX, "cmspi: NCS addr must be word aligned");
+			command_print(CMD, "cmspi: NCS addr must be word aligned");
 			return ERROR_COMMAND_SYNTAX_ERROR;
 		}
 		COMMAND_PARSE_NUMBER(u8, CMD_ARGV[index++], byte);
 		if (byte < 32) {
 			cmspi_info->ncs.mask = 1UL << byte;
 		} else {
-			command_print(CMD_CTX, "cmspi: NCS bit number must be in 0 ... 31");
+			command_print(CMD, "cmspi: NCS bit number must be in 0 ... 31");
 			return ERROR_COMMAND_SYNTAX_ERROR;
 		}
 
@@ -342,11 +342,11 @@ FLASH_BANK_COMMAND_HANDLER(cmspi_flash_bank_command)
 		if (byte < 32) {
 			cmspi_info->clk.mask = 1UL << byte;
 		} else {
-			command_print(CMD_CTX, "cmspi: CLK bit number must be in 0 ... 31");
+			command_print(CMD, "cmspi: CLK bit number must be in 0 ... 31");
 			return ERROR_COMMAND_SYNTAX_ERROR;
 		}
 		if (cmspi_info->clk.addr & 0x3) {
-			command_print(CMD_CTX, "cmspi: CLK addr must be word aligned");
+			command_print(CMD, "cmspi: CLK addr must be word aligned");
 			return ERROR_COMMAND_SYNTAX_ERROR;
 		}
 
@@ -365,26 +365,26 @@ FLASH_BANK_COMMAND_HANDLER(cmspi_flash_bank_command)
 			return ERROR_COMMAND_SYNTAX_ERROR;
 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[index++], cmspi_info->io[k].addr);
 		if ((cmspi_info->io[k].addr == 0) || (cmspi_info->io[k].addr & 0x3)) {
-			command_print(CMD_CTX, "cmspi: IO[%d] addr must be non-zero, word aligned", k);
+			command_print(CMD, "cmspi: IO[%d] addr must be non-zero, word aligned", k);
 			return ERROR_COMMAND_SYNTAX_ERROR;
 		}
 		COMMAND_PARSE_NUMBER(u8, CMD_ARGV[index++], byte);
 		if (byte < 32) {
 			cmspi_info->bit_no |= (byte << (k << 3));
 		} else {
-			command_print(CMD_CTX, "cmspi: IO[%d] bit number must be in 0 ... 31", k);
+			command_print(CMD, "cmspi: IO[%d] bit number must be in 0 ... 31", k);
 			return ERROR_COMMAND_SYNTAX_ERROR;
 		}
 		COMMAND_PARSE_NUMBER(u16, CMD_ARGV[index++], temp);
 		if (((temp & ~(0xFFU << 2)) != 0) || (temp == 0)) {
-			command_print(CMD_CTX, "cmspi: dir_inp_off[%d] must be non-zero 10-bit, word aligned", k);
+			command_print(CMD, "cmspi: dir_inp_off[%d] must be non-zero 10-bit, word aligned", k);
 			return ERROR_COMMAND_SYNTAX_ERROR;
 		}
 		cmspi_info->dir_inp_off |= (((temp >> 2) & 0xFF) << (k << 3));
 
 		COMMAND_PARSE_NUMBER(u16, CMD_ARGV[index++], temp);
 		if (((temp & ~(0xFFU << 2)) != 0) || (temp == 0)) {
-			command_print(CMD_CTX, "cmspi: dir_out_off[%d] must be non-zero 10-bit, word aligned", k);
+			command_print(CMD, "cmspi: dir_out_off[%d] must be non-zero 10-bit, word aligned", k);
 			return ERROR_COMMAND_SYNTAX_ERROR;
 		}
 		cmspi_info->dir_out_off |= (((temp >> 2) & 0xFF) << (k << 3));
@@ -1362,7 +1362,7 @@ static int cmspi_erase(struct flash_bank *bank, int first, int last)
 		retval = cmspi_erase_sector(bank, sector);
 		if (retval != ERROR_OK)
 			break;
-		progress_sofar(sector);
+		progress_sofar(sector - first + 1);
 		keep_alive();
 	}
 	progress_done(retval);
@@ -2398,6 +2398,9 @@ static int cmspi_probe(struct flash_bank *bank)
 			if (cmspi_info->dev.pagesize == 0)
 				cmspi_info->dev.pagesize = SPIFLASH_DEF_PAGESIZE;
 
+			bank->write_start_alignment = cmspi_info->dev.pagesize;
+			bank->write_end_alignment = cmspi_info->dev.pagesize;
+
 			bank->num_sectors = cmspi_info->dev.size_in_bytes / cmspi_info->dev.sectorsize;
 			sectors = malloc(sizeof(struct flash_sector) * bank->num_sectors);
 			if (sectors == NULL) {
@@ -2561,11 +2564,11 @@ err:
 		for (sector = 0; sector < bank->num_sectors; sector++)
 			bank->sectors[sector].is_erased = 1;
 
-		command_print(CMD_CTX, "cmspi mass erase completed in"
+		command_print(CMD, "cmspi mass erase completed in"
 			" %fs (%0.3f KiB/s)", duration_elapsed(&bench),
 			duration_kbps(&bench, bank->size));
 	} else {
-		command_print(CMD_CTX, "cmspi mass erase failed after %fs",
+		command_print(CMD, "cmspi mass erase failed after %fs",
 			duration_elapsed(&bench));
 	}
 
@@ -2590,7 +2593,7 @@ COMMAND_HANDLER(cmspi_handle_set)
 
 	/* there are 3 mandatory arguments: devname, size_in_bytes, pagesize */
 	if (index + 3 > CMD_ARGC) {
-		command_print(CMD_CTX, "cmspi: not enough arguments");
+		command_print(CMD, "cmspi: not enough arguments");
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
@@ -2615,7 +2618,7 @@ COMMAND_HANDLER(cmspi_handle_set)
 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[index++], temp);
 	cmspi_info->dev.size_in_bytes = temp;
 	if (log2u(cmspi_info->dev.size_in_bytes) < 8) {
-		command_print(CMD_CTX, "cmspi: device size must be 2^n with n >= 8");
+		command_print(CMD, "cmspi: device size must be 2^n with n >= 8");
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
@@ -2624,7 +2627,7 @@ COMMAND_HANDLER(cmspi_handle_set)
 		cmspi_info->dev.pagesize = SPIFLASH_DEF_PAGESIZE;
 	if ((cmspi_info->dev.pagesize > cmspi_info->dev.size_in_bytes) ||
 		(log2u(cmspi_info->dev.pagesize) < 0)) {
-		command_print(CMD_CTX, "cmspi: page size must be 2^n and <= device size");
+		command_print(CMD, "cmspi: page size must be 2^n and <= device size");
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
@@ -2637,14 +2640,14 @@ COMMAND_HANDLER(cmspi_handle_set)
 
 		case MODE_QPI:
 			if (index + 3 > CMD_ARGC) {
-				command_print(CMD_CTX, "cmspi: not enough arguments");
+				command_print(CMD, "cmspi: not enough arguments");
 				return ERROR_COMMAND_SYNTAX_ERROR;
 			}
 
 			COMMAND_PARSE_NUMBER(u8, CMD_ARGV[index++], cmspi_info->dev.read_cmd);
 			if ((cmspi_info->dev.read_cmd != 0x03) &&
 				(cmspi_info->dev.read_cmd != 0x13)) {
-				command_print(CMD_CTX, "cmspi: only 0x03/0x13 READ allowed");
+				command_print(CMD, "cmspi: only 0x03/0x13 READ allowed");
 				return ERROR_COMMAND_SYNTAX_ERROR;
 			}
 
@@ -2660,7 +2663,7 @@ COMMAND_HANDLER(cmspi_handle_set)
 				(cmspi_info->dev.qread_cmd != 0xBC) &&
 				(cmspi_info->dev.qread_cmd != 0xEB) &&
 				(cmspi_info->dev.qread_cmd != 0xEC)) {
-				command_print(CMD_CTX, "cmspi: only 0x0B/0x0C/0x3B/0x3C/"
+				command_print(CMD, "cmspi: only 0x0B/0x0C/0x3B/0x3C/"
 					"0x6B/0x6C/0xBB/0xBC/0xEB/0xEC QREAD allowed");
 				return ERROR_COMMAND_SYNTAX_ERROR;
 			}
@@ -2669,7 +2672,7 @@ COMMAND_HANDLER(cmspi_handle_set)
 			if ((cmspi_info->dev.pprog_cmd != 0x02) &&
 				(cmspi_info->dev.pprog_cmd != 0x12) &&
 				(cmspi_info->dev.pprog_cmd != 0x32)) {
-				command_print(CMD_CTX, "cmspi: only 0x02/0x12/0x32 PPRG allowed");
+				command_print(CMD, "cmspi: only 0x02/0x12/0x32 PPRG allowed");
 				return ERROR_COMMAND_SYNTAX_ERROR;
 			}
 
@@ -2684,14 +2687,14 @@ COMMAND_HANDLER(cmspi_handle_set)
 				if ((cmspi_info->dev.sectorsize > cmspi_info->dev.size_in_bytes) ||
 					(cmspi_info->dev.sectorsize < cmspi_info->dev.pagesize) ||
 					(log2u(cmspi_info->dev.sectorsize) < 0)) {
-					command_print(CMD_CTX, "cmspi: sector size must be 2^n and <= device size");
+					command_print(CMD, "cmspi: sector size must be 2^n and <= device size");
 					return ERROR_COMMAND_SYNTAX_ERROR;
 				}
 
 				if (index < CMD_ARGC)
 					COMMAND_PARSE_NUMBER(u8, CMD_ARGV[index++], cmspi_info->dev.erase_cmd);
 				else {
-					command_print(CMD_CTX, "cmspi: erase command missing");
+					command_print(CMD, "cmspi: erase command missing");
 					return ERROR_COMMAND_SYNTAX_ERROR;
 				}
 			} else {
@@ -2703,7 +2706,7 @@ COMMAND_HANDLER(cmspi_handle_set)
 
 		case MODE_I2C:
 			if (index + 3  > CMD_ARGC) {
-				command_print(CMD_CTX, "cmspi: missing I2C addr, bits or delay ");
+				command_print(CMD, "cmspi: missing I2C addr, bits or delay ");
 				return ERROR_COMMAND_SYNTAX_ERROR;
 			}
 
@@ -2774,7 +2777,7 @@ COMMAND_HANDLER(cmspi_handle_set)
 	}
 
 	if (index < CMD_ARGC) {
-		command_print(CMD_CTX, "cmspi: extra arguments");
+		command_print(CMD, "cmspi: extra arguments");
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
@@ -2909,7 +2912,7 @@ COMMAND_HANDLER(cmspi_handle_cmd)
 				snprintf(temp, sizeof(temp), "%02" PRIx8 " ", (uint8_t)(data & 0xFF));
 				strncat(output, temp, sizeof(output) - strlen(output) - 1);
 			}
-			command_print(CMD_CTX, "%s", output);
+			command_print(CMD, "%s", output);
 			break;
 
 		case MODE_I2C:
@@ -2982,7 +2985,7 @@ COMMAND_HANDLER(cmspi_handle_cmd)
 			retval = cmspi_i2c_start_stop(bank, false);
 			if (retval != ERROR_OK)
 				goto err;
-			command_print(CMD_CTX, "%s", output);
+			command_print(CMD, "%s", output);
 			break;
 
 		default:
@@ -3098,7 +3101,7 @@ COMMAND_HANDLER(cmspi_handle_qpi)
 
 	if ((cmspi_info->io[3].addr == 0) ||
 		(cmspi_info->io[2].addr == 0)) {
-		command_print(CMD_CTX, "cmspi: no IO2/IO3, QPI mode not possible");
+		command_print(CMD, "cmspi: no IO2/IO3, QPI mode not possible");
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 

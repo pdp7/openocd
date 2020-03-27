@@ -4,6 +4,8 @@
  *   bohdan.tymkiv@cypress.com bohdan200@gmail.com                         *
  *   mykola.tyzyak@cypress.com                                             *
  *                                                                         *
+ *   Copyright (C) <2019-2020> < Cypress Semiconductor Corporation >       *
+ *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
  *   the Free Software Foundation; either version 2 of the License, or     *
@@ -30,11 +32,12 @@
 #include "target/image.h"
 #include "flash/progress.h"
 
-#define KiB(x)   ((x) << 10)
-#define MiB(x)   ((x) << 20)
+#define KiB(x)   ((x) << 10u)
+#define MiB(x)   ((x) << 20u)
 
-#define MFLASH_SECTOR_SIZE             (256u * 1024u)
-#define WFLASH_SECTOR_SIZE             (32u * 1024u)
+#define MFLASH_SECTOR_SIZE_256K        KiB(256u)
+#define MFLASH_SECTOR_SIZE_128K        KiB(128u)
+#define WFLASH_SECTOR_SIZE             KiB(32u)
 
 #define MEM_WFLASH_SIZE                32768u
 #define MEM_SFLASH_SIZE                32768u
@@ -56,6 +59,7 @@ const struct mxs40_regs psoc6_ble2_regs = {
 	.ipc_data = MEM_IPC1_DATA,
 	.ipc_lock_stat = MEM_IPC1_LOCK_STATUS,
 	.ipc_intr = MEM_IPC1_INTR_MASK,
+	.ipc_intr_msk = IPC_INTR_MASK_2_CORE,
 	.vtbase = { MEM_VTBASE1_CM0, MEM_VTBASE1_CM4, 0, },
 	.mem_base_main = {0x10000000, 0, },
 	.mem_base_work = {0x14000000, 0, },
@@ -71,6 +75,13 @@ const struct mxs40_regs psoc6_ble2_regs = {
 #define MEM_IPC2_DATA                  (MEM_BASE_IPC2 + 0x0Cu)
 #define MEM_IPC2_LOCK_STATUS           (MEM_BASE_IPC2 + 0x1Cu)
 
+/* MACAW devices - IPC[1] is dedicated for DAP */
+#define MEM_BASE_IPC3                  0x40220020u
+#define MEM_IPC3_ACQUIRE               (MEM_BASE_IPC3 + 0x00u)
+#define MEM_IPC3_NOTIFY                (MEM_BASE_IPC3 + 0x08u)
+#define MEM_IPC3_DATA                  (MEM_BASE_IPC3 + 0x0Cu)
+#define MEM_IPC3_LOCK_STATUS           (MEM_BASE_IPC3 + 0x1Cu)
+
 /* PSoC6A2M registers */
 const struct mxs40_regs psoc6_2m_regs = {
 	.variant = MXS40_VARIANT_PSOC6A_2M,
@@ -79,11 +90,24 @@ const struct mxs40_regs psoc6_2m_regs = {
 	.ipc_data = MEM_IPC2_DATA,
 	.ipc_lock_stat = MEM_IPC2_LOCK_STATUS,
 	.ipc_intr = MEM_IPC2_INTR_MASK,
+	.ipc_intr_msk = IPC_INTR_MASK_2_CORE,
 	.ppu_flush = 0x40010100,
 	.vtbase = { MEM_VTBASE2_CM0, MEM_VTBASE2_CM4, 0, },
 	.mem_base_main = {0x10000000, 0,},
 	.mem_base_work = {0x14000000, 0,},
 	.mem_base_sflash = {0x16000000, 0,},
+
+};
+/* Macaw registers */
+const struct mxs40_regs macaw_regs = {
+	.variant = MXS40_VARIANT_MACAW,
+	.ipc_acquire = MEM_IPC3_ACQUIRE,
+	.ipc_notify = MEM_IPC3_NOTIFY,
+	.ipc_data = MEM_IPC3_DATA,
+	.ipc_lock_stat = MEM_IPC3_LOCK_STATUS,
+	.ipc_intr = MEM_IPC2_INTR_MASK,
+	.ipc_intr_msk = IPC_INTR_MASK_1_CORE,
+	.vtbase = { MEM_VTBASE2_CM0, 0, },
 };
 
 /** ***********************************************************************************************
@@ -139,23 +163,57 @@ static int psoc6_probe(struct flash_bank *bank)
 	bank->bus_width = 4;
 	bank->erased_value = 0;
 	bank->default_padded_value = 0;
-
-	bank->sectors = calloc(num_sectors, sizeof(struct flash_sector));
-	for (size_t i = 0; i < num_sectors; i++) {
-		bank->sectors[i].size = row_sz;
-		bank->sectors[i].offset = i * row_sz;
-		bank->sectors[i].is_erased = -1;
-		bank->sectors[i].is_protected = -1;
-	}
+	bank->sectors = alloc_block_array(0, row_sz, num_sectors);
 
 	bank->write_start_alignment = row_sz;
 	bank->write_end_alignment = row_sz;
-	bank->minimal_write_gap = row_sz;
+	bank->minimal_write_gap = FLASH_WRITE_GAP_SECTOR;
 
 	info->page_size = row_sz;
 	info->is_probed = true;
 
 	return hr;
+}
+
+/** ***********************************************************************************************
+ * @brief builds data buffer with list of sectors addresses to erase
+ * @param bank current flash bank
+ * @param first first sector to erase
+ * @param last last sector to erase
+ * @param address_buffer pointer to the buffer
+ * @return number of addresses in the buffer
+ *************************************************************************************************/
+static size_t psoc6_erase_builder(struct flash_bank *bank, int first, int last, uint32_t *address_buffer)
+{
+	struct mxs40_bank_info *info = bank->driver_priv;
+	uint32_t sector_size = 0;
+
+	if(mxs40_flash_bank_matches(bank, info->regs->mem_base_work, NULL)) {
+		sector_size = WFLASH_SECTOR_SIZE;
+	} else if (mxs40_flash_bank_matches(bank, info->regs->mem_base_main, NULL)) {
+		sector_size = bank->size > KiB(256) ? MFLASH_SECTOR_SIZE_256K : MFLASH_SECTOR_SIZE_128K;
+	}
+
+	assert(sector_size != 0);
+
+	/* Number of rows in single sector */
+	const int rows_in_sector = sector_size / info->page_size;
+	size_t sector_count = 0;
+
+	while (last >= first) {
+		const uint32_t address = bank->base + first * info->page_size;
+		if ((first % rows_in_sector) == 0 && (last - first + 1) >= rows_in_sector) {
+			/* Erase Sector if we are on sector boundary and erase size covers whole sector */
+			address_buffer[sector_count++] = address | 1u;
+			first += rows_in_sector;
+		} else {
+			/* Erase Row otherwise */
+			address_buffer[sector_count++] = address;
+			first += 1;
+		}
+	}
+
+	return sector_count;
 }
 
 /** ***********************************************************************************************
@@ -169,19 +227,28 @@ static int psoc6_probe(struct flash_bank *bank)
  *************************************************************************************************/
 static int psoc6_erase(struct flash_bank *bank, int first, int last)
 {
-	struct target *target = bank->target;
 	struct mxs40_bank_info *info = bank->driver_priv;
-	int hr;
 
 	if (mxs40_flash_bank_matches(bank, info->regs->mem_base_sflash, NULL))
 		return mxs40_erase_sflash(bank, first, last);
 
-	hr = mxs40_sromalgo_prepare(bank);
+	if(bank->target->coreid != 0xFF)
+		return mxs40_erase_with_algo(bank, first, last, psoc6_erase_builder);
+
+	/* Fallback for SYS_AP */
+	struct target *target = bank->target;
+	int hr = mxs40_sromalgo_prepare(bank);
 	if (hr != ERROR_OK)
 		goto exit;
 
-	const uint32_t sector_size = mxs40_flash_bank_matches(bank, info->regs->mem_base_work, NULL) ?
-		WFLASH_SECTOR_SIZE : MFLASH_SECTOR_SIZE;
+	uint32_t sector_size = 0;
+	if(mxs40_flash_bank_matches(bank, info->regs->mem_base_work, NULL)) {
+		sector_size = WFLASH_SECTOR_SIZE;
+	} else if (mxs40_flash_bank_matches(bank, info->regs->mem_base_main, NULL)) {
+		sector_size = bank->size > KiB(256) ? MFLASH_SECTOR_SIZE_256K : MFLASH_SECTOR_SIZE_128K;
+	}
+
+	assert(sector_size != 0);
 
 	/* Number of rows in single sector */
 	const int rows_in_sector = sector_size / info->page_size;
@@ -195,9 +262,6 @@ static int psoc6_erase(struct flash_bank *bank, int first, int last)
 			if (hr != ERROR_OK)
 				goto exit;
 
-			for (int i = first; i < first + rows_in_sector; i++)
-				bank->sectors[i].is_erased = 1;
-
 			first += rows_in_sector;
 		} else {
 			/* Perform Row Erase otherwise */
@@ -205,7 +269,6 @@ static int psoc6_erase(struct flash_bank *bank, int first, int last)
 			if (hr != ERROR_OK)
 				goto exit;
 
-			bank->sectors[first].is_erased = 1;
 			first += 1;
 		}
 		progress_left(last - first + 1);
@@ -226,9 +289,16 @@ FLASH_BANK_COMMAND_HANDLER(psoc6_ble2_flash_bank_command)
 		#include "../../../../contrib/loaders/flash/psoc6/psoc6_write.inc"
 	};
 
+	static const uint8_t p6_erase_algo[] = {
+		#include "../../../../contrib/loaders/flash/psoc6/psoc6_erase.inc"
+	};
+
 	struct mxs40_bank_info *info = calloc(1, sizeof(struct mxs40_bank_info));
 	info->program_algo_p = p6_program_algo;
 	info->program_algo_size = sizeof(p6_program_algo);
+	info->erase_algo_p = p6_erase_algo;
+	info->erase_algo_size = sizeof(p6_erase_algo);
+
 	info->regs = &psoc6_ble2_regs;
 	info->size_override = bank->size;
 	bank->driver_priv = info;
@@ -245,9 +315,15 @@ FLASH_BANK_COMMAND_HANDLER(psoc6_2m_flash_bank_command)
 		#include "../../../../contrib/loaders/flash/psoc6/psoc62m_write.inc"
 	};
 
+	static const uint8_t p6_2m_erase_algo[] = {
+		#include "../../../../contrib/loaders/flash/psoc6/psoc62m_erase.inc"
+	};
+
 	struct mxs40_bank_info *info = calloc(1, sizeof(struct mxs40_bank_info));
 	info->program_algo_p = p6_2m_program_algo;
 	info->program_algo_size = sizeof(p6_2m_program_algo);
+	info->erase_algo_p = p6_2m_erase_algo;
+	info->erase_algo_size = sizeof(p6_2m_erase_algo);
 	info->regs = &psoc6_2m_regs;
 	info->size_override = bank->size;
 	bank->driver_priv = info;
@@ -260,11 +336,12 @@ COMMAND_HANDLER(psoc6_handle_secure_acquire)
 	int hr;
 	struct timeout to;
 	struct target *target = get_current_target(CMD_CTX);
-	struct cortex_m_common *cm = target_to_cm(target);
-	uint32_t ap = cm->common_magic == CORTEX_M_COMMON_MAGIC ? cm->apsel : 0;
+	uint32_t ap = target->coreid == 0xFF ? 0 : target_to_cm(target)->apsel;
 	bool acquire_mode_halt;
+	bool do_handshake;
 
-	if(CMD_ARGC != 3)
+
+	if(CMD_ARGC != 4)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
 	uint32_t ipc_data_addr;
@@ -288,8 +365,18 @@ COMMAND_HANDLER(psoc6_handle_secure_acquire)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
+	if(strcmp(CMD_ARGV[2], "handshake") == 0) {
+		do_handshake = true;
+	} else if(strcmp(CMD_ARGV[2], "no_handshake") == 0) {
+		do_handshake = false;
+	} else {
+		LOG_ERROR("Invalid handshake mode for secure_acquire: '%s'. "
+				  "Only 'handshake' and 'no_handshake' are currently supported.", CMD_ARGV[2]);
+		return ERROR_COMMAND_SYNTAX_ERROR;
+	}
+
 	uint32_t timeout;
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], timeout);
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[3], timeout);
 
 	LOG_INFO("Waiting up to %d.%d sec for the bootloader to open AP #%d...",
 			 timeout / 1000u, timeout % 1000u, ap);
@@ -310,7 +397,7 @@ COMMAND_HANDLER(psoc6_handle_secure_acquire)
 	};
 
 	/* Set TEST_MODE bit (only if we are going to halt) */
-	while(acquire_mode_halt && !mxs40_timeout_expired(&to)) {
+	while(do_handshake && acquire_mode_halt && !mxs40_timeout_expired(&to)) {
 		keep_alive();
 
 		error_msg = "failed to write IPC[2].DATA register";
@@ -332,7 +419,7 @@ COMMAND_HANDLER(psoc6_handle_secure_acquire)
 	}
 
 	/* Wait for handshake (only if we are going to halt) */
-	if(acquire_mode_halt) {
+	if(do_handshake && acquire_mode_halt) {
 		LOG_INFO("Waiting up to %d.%d sec for the handshake from the target...",
 				 timeout / 1000u, timeout % 1000u);
 
@@ -384,7 +471,7 @@ static const struct command_registration psoc6_exec_command_handlers[] = {
 		.name = "secure_acquire",
 		.handler = psoc6_handle_secure_acquire,
 		.mode = COMMAND_EXEC,
-		.usage = "<psoc6|psoc6_2m> <run|halt> <timeout>",
+		.usage = "<psoc6|psoc6_2m> <run|halt> <handshake|no_handshake> <timeout>",
 		.help = "",
 	},
 	{

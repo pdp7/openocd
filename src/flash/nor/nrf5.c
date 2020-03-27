@@ -85,7 +85,7 @@ enum nrf5_ficr_registers {
 
 enum nrf5_uicr_registers {
 	NRF5_UICR_BASE = 0x10001000, /* User Information
-				       * Configuration Regsters */
+					   * Configuration Regsters */
 
 #define NRF5_UICR_REG(offset) (NRF5_UICR_BASE + offset)
 
@@ -97,7 +97,7 @@ enum nrf5_uicr_registers {
 
 enum nrf5_nvmc_registers {
 	NRF5_NVMC_BASE = 0x4001E000, /* Non-Volatile Memory
-				       * Controller Registers */
+					   * Controller Registers */
 
 #define NRF5_NVMC_REG(offset) (NRF5_NVMC_BASE + offset)
 
@@ -343,8 +343,8 @@ static int nrf5_nvmc_erase_enable(struct nrf5_info *chip)
 {
 	int res;
 	res = target_write_u32(chip->target,
-			       NRF5_NVMC_CONFIG,
-			       NRF5_NVMC_CONFIG_EEN);
+				   NRF5_NVMC_CONFIG,
+				   NRF5_NVMC_CONFIG_EEN);
 
 	if (res != ERROR_OK) {
 		LOG_ERROR("Failed to enable erase operation");
@@ -366,8 +366,8 @@ static int nrf5_nvmc_write_enable(struct nrf5_info *chip)
 {
 	int res;
 	res = target_write_u32(chip->target,
-			       NRF5_NVMC_CONFIG,
-			       NRF5_NVMC_CONFIG_WEN);
+				   NRF5_NVMC_CONFIG,
+				   NRF5_NVMC_CONFIG_WEN);
 
 	if (res != ERROR_OK) {
 		LOG_ERROR("Failed to enable write operation");
@@ -389,8 +389,8 @@ static int nrf5_nvmc_read_only(struct nrf5_info *chip)
 {
 	int res;
 	res = target_write_u32(chip->target,
-			       NRF5_NVMC_CONFIG,
-			       NRF5_NVMC_CONFIG_REN);
+				   NRF5_NVMC_CONFIG,
+				   NRF5_NVMC_CONFIG_REN);
 
 	if (res != ERROR_OK) {
 		LOG_ERROR("Failed to enable read-only operation");
@@ -408,7 +408,7 @@ static int nrf5_nvmc_read_only(struct nrf5_info *chip)
 }
 
 static int nrf5_nvmc_generic_erase(struct nrf5_info *chip,
-			       uint32_t erase_register, uint32_t erase_value)
+				   uint32_t erase_register, uint32_t erase_value)
 {
 	int res;
 
@@ -417,8 +417,8 @@ static int nrf5_nvmc_generic_erase(struct nrf5_info *chip,
 		goto error;
 
 	res = target_write_u32(chip->target,
-			       erase_register,
-			       erase_value);
+				   erase_register,
+				   erase_value);
 	if (res != ERROR_OK)
 		goto set_read_only;
 
@@ -486,7 +486,7 @@ static int nrf5_protect_check(struct flash_bank *bank)
 	}
 
 	res = target_read_u32(chip->target, NRF51_FICR_CLENR0,
-			      &clenr0);
+				  &clenr0);
 	if (res != ERROR_OK) {
 		LOG_ERROR("Couldn't read code region 0 size[FICR]");
 		return res;
@@ -494,7 +494,7 @@ static int nrf5_protect_check(struct flash_bank *bank)
 
 	if (clenr0 == 0xFFFFFFFF) {
 		res = target_read_u32(chip->target, NRF51_UICR_CLENR0,
-				      &clenr0);
+					  &clenr0);
 		if (res != ERROR_OK) {
 			LOG_ERROR("Couldn't read code region 0 size[UICR]");
 			return res;
@@ -533,7 +533,7 @@ static int nrf5_protect(struct flash_bank *bank, int set, int first, int last)
 	}
 
 	res = target_read_u32(chip->target, NRF51_FICR_PPFC,
-			      &ppfc);
+				  &ppfc);
 	if (res != ERROR_OK) {
 		LOG_ERROR("Couldn't read PPFC register");
 		return res;
@@ -545,7 +545,7 @@ static int nrf5_protect(struct flash_bank *bank, int set, int first, int last)
 	}
 
 	res = target_read_u32(chip->target, NRF51_UICR_CLENR0,
-			      &clenr0);
+				  &clenr0);
 	if (res != ERROR_OK) {
 		LOG_ERROR("Couldn't read code region 0 size[UICR]");
 		return res;
@@ -553,7 +553,7 @@ static int nrf5_protect(struct flash_bank *bank, int set, int first, int last)
 
 	if (clenr0 == 0xFFFFFFFF) {
 		res = target_write_u32(chip->target, NRF51_UICR_CLENR0,
-				       clenr0);
+					   clenr0);
 		if (res != ERROR_OK) {
 			LOG_ERROR("Couldn't write code region 0 size[UICR]");
 			return res;
@@ -864,7 +864,7 @@ static int nrf5_erase_page(struct flash_bank *bank,
 		if (chip->features & NRF5_FEATURE_SERIES_51) {
 			uint32_t ppfc;
 			res = target_read_u32(chip->target, NRF51_FICR_PPFC,
-				      &ppfc);
+					  &ppfc);
 			if (res != ERROR_OK) {
 				LOG_ERROR("Couldn't read PPFC register");
 				return res;
@@ -883,14 +883,14 @@ static int nrf5_erase_page(struct flash_bank *bank,
 		}
 
 		res = nrf5_nvmc_generic_erase(chip,
-					       NRF5_NVMC_ERASEUICR,
-					       0x00000001);
+						   NRF5_NVMC_ERASEUICR,
+						   0x00000001);
 
 
 	} else {
 		res = nrf5_nvmc_generic_erase(chip,
-					       NRF5_NVMC_ERASEPAGE,
-					       sector->offset);
+						   NRF5_NVMC_ERASEPAGE,
+						   sector->offset);
 	}
 
 	return res;
@@ -1149,7 +1149,7 @@ COMMAND_HANDLER(nrf5_handle_mass_erase_command)
 	if (chip->features & NRF5_FEATURE_SERIES_51) {
 		uint32_t ppfc;
 		res = target_read_u32(target, NRF51_FICR_PPFC,
-			      &ppfc);
+				  &ppfc);
 		if (res != ERROR_OK) {
 			LOG_ERROR("Couldn't read PPFC register");
 			return res;
@@ -1247,7 +1247,7 @@ COMMAND_HANDLER(nrf5_handle_info_command)
 
 	for (size_t i = 0; i < ARRAY_SIZE(ficr); i++) {
 		res = target_read_u32(chip->target, ficr[i].address,
-				      &ficr[i].value);
+					  &ficr[i].value);
 		if (res != ERROR_OK) {
 			LOG_ERROR("Couldn't read %" PRIx32, ficr[i].address);
 			return res;
@@ -1256,7 +1256,7 @@ COMMAND_HANDLER(nrf5_handle_info_command)
 
 	for (size_t i = 0; i < ARRAY_SIZE(uicr); i++) {
 		res = target_read_u32(chip->target, uicr[i].address,
-				      &uicr[i].value);
+					  &uicr[i].value);
 		if (res != ERROR_OK) {
 			LOG_ERROR("Couldn't read %" PRIx32, uicr[i].address);
 			return res;

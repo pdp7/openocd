@@ -42,7 +42,7 @@ if [ "$CONFIG" == "Coverage" ]; then
 fi
 
 # Current branch
-CURRENT_BRANCH=icw/2.2
+CURRENT_BRANCH=icw/3.0
 
 # Get current branch from GitLab CI variable
 if [ ! -z ${CI_BUILD_REF_NAME+x} ];  then

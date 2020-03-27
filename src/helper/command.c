@@ -44,6 +44,8 @@
 /* nice short description of source file */
 #define __THIS__FILE__ "command.c"
 
+static bool g_local_echo = true;
+
 static int run_command(struct command_context *context,
 		struct command *c, const char *words[], unsigned num_words);
 
@@ -496,6 +498,11 @@ void command_print_sameline(struct command_invocation *cmd, const char *format, 
 		Jim_AppendString(cmd->ctx->interp, cmd->output, string, -1);
 		/* We already printed it above
 		 * command_output_text(context, string); */
+
+		if(g_local_echo) {
+			command_output_text(cmd->ctx, string);
+		}
+
 		free(string);
 	}
 
@@ -521,6 +528,11 @@ void command_print(struct command_invocation *cmd, const char *format, ...)
 		Jim_AppendString(cmd->ctx->interp, cmd->output, string, -1);
 		/* We already printed it above
 		 * command_output_text(context, string); */
+
+		if(g_local_echo) {
+			command_output_text(cmd->ctx, string);
+		}
+
 		free(string);
 	}
 
@@ -678,9 +690,9 @@ int command_run_line(struct command_context *context, char *line)
 		int reslen;
 
 		result = Jim_GetString(Jim_GetResult(interp), &reslen);
-		if (reslen > 0) {
+		if (reslen > 0 && !g_local_echo) {
 			command_output_text(context, result);
-			command_output_text(context, "\n");
+			/* command_output_text(context, "\n"); */
 		}
 		retval = ERROR_OK;
 	} else if (retcode == JIM_EXIT) {
@@ -692,7 +704,6 @@ int command_run_line(struct command_context *context, char *line)
 		/* Report only errors which were not caught by 'catch' */
 		if(interp->errorFlag) {
 			Jim_MakeErrorMessage(interp);
-		/* error is broadcast */
 			LOG_USER("%s", Jim_GetString(Jim_GetResult(interp), NULL));
 		}
 
@@ -918,6 +929,15 @@ static COMMAND_HELPER(command_help_show, struct command *c, unsigned n,
 
 	return CALL_COMMAND_HANDLER(command_help_show_list,
 		c->children, n, show_help, cmd_match);
+}
+
+COMMAND_HANDLER(handle_local_echo_command)
+{
+	if(CMD_ARGC != 1)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+	COMMAND_PARSE_ON_OFF(CMD_ARGV[0], g_local_echo);
+
+	return ERROR_OK;
 }
 
 COMMAND_HANDLER(handle_help_command)
@@ -1280,6 +1300,14 @@ static const struct command_registration command_builtin_handlers[] = {
 		.help = "Show basic command usage; "
 			"command can be multiple tokens.",
 		.usage = "[command_name]",
+	},
+	{
+		.name = "local_echo",
+		.handler = handle_local_echo_command,
+		.mode = COMMAND_ANY,
+		.help = "Controls printing of the result of commands "
+				"for the non-interactive shells",
+		.usage = "<on|off>",
 	},
 	{
 		.name = "command",

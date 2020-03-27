@@ -56,8 +56,8 @@ static int cortex_m_store_core_reg_u32(struct target *target,
 		uint32_t num, uint32_t value);
 static void cortex_m_dwt_free(struct target *target);
 
-static int cortexm_dap_read_coreregister_u32(struct target *target,
-	uint32_t *value, int regnum)
+static int cortex_m_load_core_reg_u32(struct target *target,
+		uint32_t regsel, uint32_t *value)
 {
 	struct armv7m_common *armv7m = target_to_armv7m(target);
 	int retval;
@@ -71,7 +71,7 @@ static int cortexm_dap_read_coreregister_u32(struct target *target,
 			return retval;
 	}
 
-	retval = mem_ap_write_u32(armv7m->debug_ap, DCB_DCRSR, regnum);
+	retval = mem_ap_write_u32(armv7m->debug_ap, DCB_DCRSR, regsel);
 	if (retval != ERROR_OK)
 		return retval;
 
@@ -89,8 +89,8 @@ static int cortexm_dap_read_coreregister_u32(struct target *target,
 	return retval;
 }
 
-static int cortexm_dap_write_coreregister_u32(struct target *target,
-	uint32_t value, int regnum)
+static int cortex_m_store_core_reg_u32(struct target *target,
+		uint32_t regsel, uint32_t value)
 {
 	struct armv7m_common *armv7m = target_to_armv7m(target);
 	int retval;
@@ -108,7 +108,7 @@ static int cortexm_dap_write_coreregister_u32(struct target *target,
 	if (retval != ERROR_OK)
 		return retval;
 
-	retval = mem_ap_write_atomic_u32(armv7m->debug_ap, DCB_DCRSR, regnum | DCRSR_WnR);
+	retval = mem_ap_write_atomic_u32(armv7m->debug_ap, DCB_DCRSR, regsel | DCRSR_WnR);
 	if (retval != ERROR_OK)
 		return retval;
 
@@ -500,7 +500,7 @@ static int cortex_m_debug_entry(struct target *target)
 
 	for (i = 0; i < num_regs; i++) {
 		r = &armv7m->arm.core_cache->reg_list[i];
-		if (!r->valid)
+		if (!r->valid && r->exist)
 			arm->read_core_reg(target, r, i, ARM_MODE_ANY);
 	}
 
@@ -1597,176 +1597,6 @@ void cortex_m_enable_watchpoints(struct target *target)
 	}
 }
 
-static int cortex_m_load_core_reg_u32(struct target *target,
-		uint32_t num, uint32_t *value)
-{
-	int retval;
-
-	/* NOTE:  we "know" here that the register identifiers used
-	 * in the v7m header match the Cortex-M3 Debug Core Register
-	 * Selector values for R0..R15, xPSR, MSP, and PSP.
-	 */
-	switch (num) {
-		case 0 ... 18:
-			/* read a normal core register */
-			retval = cortexm_dap_read_coreregister_u32(target, value, num);
-
-			if (retval != ERROR_OK) {
-				LOG_ERROR("JTAG failure %i", retval);
-				return ERROR_JTAG_DEVICE_ERROR;
-			}
-			LOG_DEBUG("load from core reg %i  value 0x%" PRIx32 "", (int)num, *value);
-			break;
-
-		case ARMV7M_FPSCR:
-			/* Floating-point Status and Registers */
-			retval = target_write_u32(target, DCB_DCRSR, 0x21);
-			if (retval != ERROR_OK)
-				return retval;
-			retval = target_read_u32(target, DCB_DCRDR, value);
-			if (retval != ERROR_OK)
-				return retval;
-			LOG_DEBUG("load from FPSCR  value 0x%" PRIx32, *value);
-			break;
-
-		case ARMV7M_S0 ... ARMV7M_S31:
-			/* Floating-point Status and Registers */
-			retval = target_write_u32(target, DCB_DCRSR, num - ARMV7M_S0 + 0x40);
-			if (retval != ERROR_OK)
-				return retval;
-			retval = target_read_u32(target, DCB_DCRDR, value);
-			if (retval != ERROR_OK)
-				return retval;
-			LOG_DEBUG("load from FPU reg S%d  value 0x%" PRIx32,
-				  (int)(num - ARMV7M_S0), *value);
-			break;
-
-		case ARMV7M_PRIMASK:
-		case ARMV7M_BASEPRI:
-		case ARMV7M_FAULTMASK:
-		case ARMV7M_CONTROL:
-			/* Cortex-M3 packages these four registers as bitfields
-			 * in one Debug Core register.  So say r0 and r2 docs;
-			 * it was removed from r1 docs, but still works.
-			 */
-			cortexm_dap_read_coreregister_u32(target, value, 20);
-
-			switch (num) {
-				case ARMV7M_PRIMASK:
-					*value = buf_get_u32((uint8_t *)value, 0, 1);
-					break;
-
-				case ARMV7M_BASEPRI:
-					*value = buf_get_u32((uint8_t *)value, 8, 8);
-					break;
-
-				case ARMV7M_FAULTMASK:
-					*value = buf_get_u32((uint8_t *)value, 16, 1);
-					break;
-
-				case ARMV7M_CONTROL:
-					*value = buf_get_u32((uint8_t *)value, 24, 2);
-					break;
-			}
-
-			LOG_DEBUG("load from special reg %i value 0x%" PRIx32 "", (int)num, *value);
-			break;
-
-		default:
-			return ERROR_COMMAND_SYNTAX_ERROR;
-	}
-
-	return ERROR_OK;
-}
-
-static int cortex_m_store_core_reg_u32(struct target *target,
-		uint32_t num, uint32_t value)
-{
-	int retval;
-	uint32_t reg;
-	struct armv7m_common *armv7m = target_to_armv7m(target);
-
-	/* NOTE:  we "know" here that the register identifiers used
-	 * in the v7m header match the Cortex-M3 Debug Core Register
-	 * Selector values for R0..R15, xPSR, MSP, and PSP.
-	 */
-	switch (num) {
-		case 0 ... 18:
-			retval = cortexm_dap_write_coreregister_u32(target, value, num);
-			if (retval != ERROR_OK) {
-				struct reg *r;
-
-				LOG_ERROR("JTAG failure");
-				r = armv7m->arm.core_cache->reg_list + num;
-				r->dirty = r->valid;
-				return ERROR_JTAG_DEVICE_ERROR;
-			}
-			LOG_DEBUG("write core reg %i value 0x%" PRIx32 "", (int)num, value);
-			break;
-
-		case ARMV7M_FPSCR:
-			/* Floating-point Status and Registers */
-			retval = target_write_u32(target, DCB_DCRDR, value);
-			if (retval != ERROR_OK)
-				return retval;
-			retval = target_write_u32(target, DCB_DCRSR, 0x21 | (1<<16));
-			if (retval != ERROR_OK)
-				return retval;
-			LOG_DEBUG("write FPSCR value 0x%" PRIx32, value);
-			break;
-
-		case ARMV7M_S0 ... ARMV7M_S31:
-			/* Floating-point Status and Registers */
-			retval = target_write_u32(target, DCB_DCRDR, value);
-			if (retval != ERROR_OK)
-				return retval;
-			retval = target_write_u32(target, DCB_DCRSR, (num - ARMV7M_S0 + 0x40) | (1<<16));
-			if (retval != ERROR_OK)
-				return retval;
-			LOG_DEBUG("write FPU reg S%d  value 0x%" PRIx32,
-				  (int)(num - ARMV7M_S0), value);
-			break;
-
-		case ARMV7M_PRIMASK:
-		case ARMV7M_BASEPRI:
-		case ARMV7M_FAULTMASK:
-		case ARMV7M_CONTROL:
-			/* Cortex-M3 packages these four registers as bitfields
-			 * in one Debug Core register.  So say r0 and r2 docs;
-			 * it was removed from r1 docs, but still works.
-			 */
-			cortexm_dap_read_coreregister_u32(target, &reg, 20);
-
-			switch (num) {
-				case ARMV7M_PRIMASK:
-					buf_set_u32((uint8_t *)&reg, 0, 1, value);
-					break;
-
-				case ARMV7M_BASEPRI:
-					buf_set_u32((uint8_t *)&reg, 8, 8, value);
-					break;
-
-				case ARMV7M_FAULTMASK:
-					buf_set_u32((uint8_t *)&reg, 16, 1, value);
-					break;
-
-				case ARMV7M_CONTROL:
-					buf_set_u32((uint8_t *)&reg, 24, 2, value);
-					break;
-			}
-
-			cortexm_dap_write_coreregister_u32(target, reg, 20);
-
-			LOG_DEBUG("write special reg %i value 0x%" PRIx32 " ", (int)num, value);
-			break;
-
-		default:
-			return ERROR_COMMAND_SYNTAX_ERROR;
-	}
-
-	return ERROR_OK;
-}
-
 static int cortex_m_read_memory(struct target *target, target_addr_t address,
 	uint32_t size, uint32_t count, uint8_t *buffer)
 {
@@ -2096,7 +1926,7 @@ static void cortex_m_dwt_free(struct target *target)
 
 #define MVFR0 0xe000ef40
 #define MVFR1 0xe000ef44
-
+#define SAU_TYPE 0xE000EDD4
 #define MVFR0_DEFAULT_M4 0x10110021
 #define MVFR1_DEFAULT_M4 0x11000011
 
@@ -2104,6 +1934,31 @@ static void cortex_m_dwt_free(struct target *target)
 #define MVFR0_DEFAULT_M7_DP 0x10110221
 #define MVFR1_DEFAULT_M7_SP 0x11000011
 #define MVFR1_DEFAULT_M7_DP 0x12000011
+
+enum {
+	CPUID_PART_CM0 	= 0xC20,
+	CPUID_PART_CM0P	= 0xC60,
+	CPUID_PART_CM1	= 0xC21,
+	CPUID_PART_CM3 	= 0xC23,
+	CPUID_PART_CM4 	= 0xC24,
+	CPUID_PART_CM7  = 0xC27,
+	CPUID_PART_CM23 = 0xD20,
+	CPUID_PART_CM33	= 0xD21,
+};
+
+static const struct {
+	uint16_t part_no;
+	const char *name;
+} cortex_m_parts[] = {
+	{ CPUID_PART_CM0,  "Cortex-M0" },
+	{ CPUID_PART_CM0P, "Cortex-M0+" },
+	{ CPUID_PART_CM1,  "Cortex-M1" },
+	{ CPUID_PART_CM3,  "Cortex-M3" },
+	{ CPUID_PART_CM4,  "Cortex-M4" },
+	{ CPUID_PART_CM7,  "Cortex-M7" },
+	{ CPUID_PART_CM23, "Cortex-M23" },
+	{ CPUID_PART_CM33, "Cortex-M33" },
+};
 
 static int cortex_m_find_mem_ap(struct adiv5_dap *swjdp,
 		struct adiv5_ap **debug_ap)
@@ -2114,11 +1969,23 @@ static int cortex_m_find_mem_ap(struct adiv5_dap *swjdp,
 	return dap_find_ap(swjdp, AP_TYPE_AHB5_AP, debug_ap);
 }
 
+static void armv7m_disable_register_range(struct target *target, uint32_t start, uint32_t end)
+{
+	assert(end >= start);
+
+	struct armv7m_common *armv7m = target_to_armv7m(target);
+	struct reg_cache *cache = armv7m->arm.core_cache;
+
+	for (size_t i = 0; i < cache->num_regs; i++) {
+		if(cache->reg_list[i].number >= start && cache->reg_list[i].number <= end)
+			cache->reg_list[i].exist = false;
+	}
+}
+
 int cortex_m_examine(struct target *target)
 {
 	int retval;
 	uint32_t cpuid, fpcr, mvfr0, mvfr1;
-	int i;
 	struct cortex_m_common *cortex_m = target_to_cm(target);
 	struct adiv5_dap *swjdp = cortex_m->armv7m.arm.dap;
 	struct armv7m_common *armv7m = target_to_armv7m(target);
@@ -2154,26 +2021,27 @@ int cortex_m_examine(struct target *target)
 			return retval;
 
 		/* Get CPU Type */
-		i = (cpuid >> 4) & 0xf;
-
-		switch (cpuid & ARM_CPUID_PARTNO_MASK) {
-			case CORTEX_M23_PARTNO:
-				i = 23;
+		uint16_t part_no = (cpuid >> 4) & 0xFFF;
+		const char *part_name = NULL;
+		for(size_t i = 0; i < ARRAY_SIZE(cortex_m_parts); i++) {
+			if(cortex_m_parts[i].part_no == part_no) {
+				part_name = cortex_m_parts[i].name;
 				break;
-
-			case CORTEX_M33_PARTNO:
-				i = 33;
-				break;
-
-			default:
-				break;
+			}
 		}
 
+		/* Fallback to Cortex-M0 if CPU type is unknown */
+		if(!part_name) {
+			LOG_WARNING("Processor with CPUID.PartNo = 0x%" PRIX16 " not supported, "
+						"falling back to Cortex-CM0.", part_no);
+			part_name = cortex_m_parts[0].name;
+			part_no = cortex_m_parts[0].part_no;
+		}
 
-		LOG_DEBUG("Cortex-M%d r%" PRId8 "p%" PRId8 " processor detected",
-				i, (uint8_t)((cpuid >> 20) & 0xf), (uint8_t)((cpuid >> 0) & 0xf));
+		LOG_DEBUG("%s r%" PRId8 "p%" PRId8 " processor detected",
+				part_name, (uint8_t)((cpuid >> 20) & 0xf), (uint8_t)((cpuid >> 0) & 0xf));
 		cortex_m->maskints_erratum = false;
-		if (i == 7) {
+		if (part_no == CPUID_PART_CM7) {
 			uint8_t rev, patch;
 			rev = (cpuid >> 20) & 0xf;
 			patch = (cpuid >> 0) & 0xf;
@@ -2185,58 +2053,59 @@ int cortex_m_examine(struct target *target)
 		LOG_DEBUG("cpuid: 0x%8.8" PRIx32 "", cpuid);
 
 		/* VECTRESET is not supported on Cortex-M0, M0+ and M1 */
-		cortex_m->vectreset_supported = i > 1;
+		cortex_m->vectreset_supported = (part_no > CPUID_PART_CM1);
 
-		if (i == 4) {
+		if (part_no == CPUID_PART_CM4) {
 			target_read_u32(target, MVFR0, &mvfr0);
 			target_read_u32(target, MVFR1, &mvfr1);
 
 			/* test for floating point feature on Cortex-M4 */
 			if ((mvfr0 == MVFR0_DEFAULT_M4) && (mvfr1 == MVFR1_DEFAULT_M4)) {
-				LOG_DEBUG("Cortex-M%d floating point feature FPv4_SP found", i);
+				LOG_DEBUG("%s floating point feature FPv4_SP found", part_name);
 				armv7m->fp_feature = FPv4_SP;
 			}
-		} else if (i == 7 || i == 33) {
+		} else if (part_no == CPUID_PART_CM7 || part_no == CPUID_PART_CM33) {
 			target_read_u32(target, MVFR0, &mvfr0);
 			target_read_u32(target, MVFR1, &mvfr1);
 
 			/* test for floating point features on Cortex-M7 */
 			if ((mvfr0 == MVFR0_DEFAULT_M7_SP) && (mvfr1 == MVFR1_DEFAULT_M7_SP)) {
-				LOG_DEBUG("Cortex-M%d floating point feature FPv5_SP found", i);
+				LOG_DEBUG("%s floating point feature FPv5_SP found", part_name);
 				armv7m->fp_feature = FPv5_SP;
 			} else if ((mvfr0 == MVFR0_DEFAULT_M7_DP) && (mvfr1 == MVFR1_DEFAULT_M7_DP)) {
-				LOG_DEBUG("Cortex-M%d floating point feature FPv5_DP found", i);
+				LOG_DEBUG("%s floating point feature FPv5_DP found", part_name);
 				armv7m->fp_feature = FPv5_DP;
 			}
-		} else if (i == 0) {
+		} else if (part_no == CPUID_PART_CM0 || part_no == CPUID_PART_CM0P) {
 			/* Cortex-M0 does not support unaligned memory access */
 			armv7m->arm.is_armv6m = true;
 		}
 
-		if (armv7m->fp_feature == FP_NONE &&
-			armv7m->arm.core_cache->num_regs > ARMV7M_NUM_CORE_REGS_NOFP) {
-			/* free unavailable FPU registers */
-			size_t idx;
-
-			for (idx = ARMV7M_NUM_CORE_REGS_NOFP;
-				 idx < armv7m->arm.core_cache->num_regs;
-				 idx++) {
-				free(armv7m->arm.core_cache->reg_list[idx].value);
-				free(armv7m->arm.core_cache->reg_list[idx].feature);
-				free(armv7m->arm.core_cache->reg_list[idx].reg_data_type);
-			}
-			armv7m->arm.core_cache->num_regs = ARMV7M_NUM_CORE_REGS_NOFP;
-		}
+		if (armv7m->fp_feature == FP_NONE)
+			armv7m_disable_register_range(target, ARMV7M_D0, ARMV7M_FPSCR);
 
 		if (!armv7m->stlink) {
-			if (i == 3 || i == 4)
+			if (part_no == CPUID_PART_CM3 || part_no == CPUID_PART_CM4)
 				/* Cortex-M3/M4 have 4096 bytes autoincrement range,
 				 * s. ARM IHI 0031C: MEM-AP 7.2.2 */
 				armv7m->debug_ap->tar_autoincr_block = (1 << 12);
-			else if (i == 7)
+			else if (part_no == CPUID_PART_CM7)
 				/* Cortex-M7 has only 1024 bytes autoincrement range */
 				armv7m->debug_ap->tar_autoincr_block = (1 << 10);
 		}
+
+		/* Check if Security Arbitration Unit is implemented */
+		if(part_no == CPUID_PART_CM23 || part_no == CPUID_PART_CM33) {
+			uint32_t sau_type = 0;
+			target_read_u32(target, SAU_TYPE, &sau_type);
+			if(sau_type) {
+				LOG_DEBUG("Security Arbitration Unit detected, number of regions: %d", sau_type & 0xFF);
+				armv7m->sau_feature = true;
+			}
+		}
+
+		if(!armv7m->sau_feature)
+			armv7m_disable_register_range(target, ARMV8M_MSP_NS, ARMV8M_CONTROL_NS);
 
 		/* Configure trace modules */
 		retval = target_write_u32(target, DCB_DEMCR, TRCENA | armv7m->demcr);
@@ -2263,7 +2132,7 @@ int cortex_m_examine(struct target *target)
 				cortex_m->fp_num_code + cortex_m->fp_num_lit,
 				sizeof(struct cortex_m_fp_comparator));
 		cortex_m->fpb_enabled = fpcr & 1;
-		for (i = 0; i < cortex_m->fp_num_code + cortex_m->fp_num_lit; i++) {
+		for (int i = 0; i < cortex_m->fp_num_code + cortex_m->fp_num_lit; i++) {
 			cortex_m->fp_comparator_list[i].type =
 				(i < cortex_m->fp_num_code) ? FPCR_CODE : FPCR_LITERAL;
 			cortex_m->fp_comparator_list[i].fpcr_address = FP_COMP0 + 4 * i;

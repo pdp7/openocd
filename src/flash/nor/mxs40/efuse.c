@@ -4,6 +4,8 @@
  *   bohdan.tymkiv@cypress.com bohdan200@gmail.com                         *
  *   mykola.tyzyak@cypress.com                                             *
  *                                                                         *
+ *   Copyright (C) <2019-2020> < Cypress Semiconductor Corporation >       *
+ *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
  *   the Free Software Foundation; either version 2 of the License, or     *
@@ -22,29 +24,31 @@
 #include "target/image.h"
 #include "flash/nor/imp.h"
 
-#define MXS40_EFUSE_IGNORE                           0xFF
-#define MXS40_EFUSE_NOT_BLOWN                        0x00
-#define MXS40_EFUSE_BLOWN                            0x01
+#define MXS40_EFUSE_BANK_BASE                      0x90700000u
 
-#define MXS40_EFUSE_HASH_SIZE                        16u
-#define MXS40_EFUSE_HASH_RESPONSE_SIZE               24u
-#define MXS40_EFUSE_HASH_ZEROS_OFSET                 0x14u
-#define MXS40_EFUSE_HASH_OFFSET                      0x14
-#define MXS40_EFUSE_HASH_ZEROS_OFFSET                0x26
-#define MXS40_EFUSE_FACTORY_HASH_OFFSET              0x2Cu
-#define MXS40_EFUSE_FACTORY_HASH_SIZE                0x10u
+#define MXS40_EFUSE_IGNORE                         0xFF
+#define MXS40_EFUSE_NOT_BLOWN                      0x00
+#define MXS40_EFUSE_BLOWN                          0x01
 
-#define P6_EFUSE_LIFE_CYCLE_NORMAL_BIT            0
-#define P6_EFUSE_LIFE_CYCLE_SECURE_DEBUG_BIT      1
-#define P6_EFUSE_LIFE_CYCLE_SECURE_BIT            2
-#define P6_EFUSE_LIFE_CYCLE_RMA_BIT               3
-#define P6_EFUSE_LIFE_CYCLE_NORMAL                      (1 << P6_EFUSE_LIFE_CYCLE_NORMAL_BIT)
-#define P6_EFUSE_LIFE_CYCLE_SECURE_DEBUG                (1 << P6_EFUSE_LIFE_CYCLE_SECURE_DEBUG_BIT)
-#define P6_EFUSE_LIFE_CYCLE_SECURE                      (1 << P6_EFUSE_LIFE_CYCLE_SECURE_BIT)
-#define P6_EFUSE_LIFE_CYCLE_RMA                         (1 << P6_EFUSE_LIFE_CYCLE_RMA_BIT)
+#define MXS40_EFUSE_HASH_SIZE                      16u
+#define MXS40_EFUSE_HASH_RESPONSE_SIZE             24u
+#define MXS40_EFUSE_HASH_ZEROS_OFSET               0x14u
+#define MXS40_EFUSE_HASH_OFFSET                    0x14
+#define MXS40_EFUSE_HASH_ZEROS_OFFSET              0x26
+#define MXS40_EFUSE_FACTORY_HASH_OFFSET            0x2Cu
+#define MXS40_EFUSE_FACTORY_HASH_SIZE              0x10u
 
-#define TVII_EFUSE_KEY_START_BIT                      0
-#define TVII_EFUSE_KEY_SIZE_BITS                      6
+#define P6_EFUSE_LIFE_CYCLE_NORMAL_BIT             0
+#define P6_EFUSE_LIFE_CYCLE_SECURE_DEBUG_BIT       1
+#define P6_EFUSE_LIFE_CYCLE_SECURE_BIT             2
+#define P6_EFUSE_LIFE_CYCLE_RMA_BIT                3
+#define P6_EFUSE_LIFE_CYCLE_NORMAL                 (1 << P6_EFUSE_LIFE_CYCLE_NORMAL_BIT)
+#define P6_EFUSE_LIFE_CYCLE_SECURE_DEBUG           (1 << P6_EFUSE_LIFE_CYCLE_SECURE_DEBUG_BIT)
+#define P6_EFUSE_LIFE_CYCLE_SECURE                 (1 << P6_EFUSE_LIFE_CYCLE_SECURE_BIT)
+#define P6_EFUSE_LIFE_CYCLE_RMA                    (1 << P6_EFUSE_LIFE_CYCLE_RMA_BIT)
+
+#define TVII_EFUSE_KEY_START_BIT                   0
+#define TVII_EFUSE_KEY_SIZE_BITS                   6
 
 #define TVII_EFUSE_LIFE_CYCLE_MASK                 0x0000FFFF
 #define TVII_EFUSE_MAGIC_KEY_MASK                  0x29
@@ -53,22 +57,22 @@
 #define TVII_EFUSE_LIFE_CYCLE_SECURE_DEBUG_OFFSET  10
 #define TVII_EFUSE_LIFE_CYCLE_RMA_OFFSET           12
 #define TVII_EFUSE_LIFE_CYCLE_NORMAL_OFFSET        14
-#define TVII_EFUSE_LIFE_CYCLE_PROV                  (3 << TVII_EFUSE_LIFE_CYCLE_PROV_OFFSET)
-#define TVII_EFUSE_LIFE_CYCLE_NORMAL                (3 << TVII_EFUSE_LIFE_CYCLE_NORMAL_OFFSET)
-#define TVII_EFUSE_LIFE_CYCLE_SECURE_DEBUG          (3 << TVII_EFUSE_LIFE_CYCLE_SECURE_DEBUG_OFFSET)
-#define TVII_EFUSE_LIFE_CYCLE_SECURE                (3 << TVII_EFUSE_LIFE_CYCLE_SECURE_OFFSET)
-#define TVII_EFUSE_LIFE_CYCLE_RMA                   (3 << TVII_EFUSE_LIFE_CYCLE_RMA_OFFSET)
+#define TVII_EFUSE_LIFE_CYCLE_PROV                 (3 << TVII_EFUSE_LIFE_CYCLE_PROV_OFFSET)
+#define TVII_EFUSE_LIFE_CYCLE_NORMAL               (3 << TVII_EFUSE_LIFE_CYCLE_NORMAL_OFFSET)
+#define TVII_EFUSE_LIFE_CYCLE_SECURE_DEBUG         (3 << TVII_EFUSE_LIFE_CYCLE_SECURE_DEBUG_OFFSET)
+#define TVII_EFUSE_LIFE_CYCLE_SECURE               (3 << TVII_EFUSE_LIFE_CYCLE_SECURE_OFFSET)
+#define TVII_EFUSE_LIFE_CYCLE_RMA                  (3 << TVII_EFUSE_LIFE_CYCLE_RMA_OFFSET)
 
-#define MXS40_LIFE_CYCLE_VIRGIN               0
-#define MXS40_LIFE_CYCLE_NORMAL               1
-#define MXS40_LIFE_CYCLE_SECURE_DEBUG         2
-#define MXS40_LIFE_CYCLE_SECURE               3
-#define MXS40_LIFE_CYCLE_RMA                  4
-#define MXS40_LIFE_CYCLE_SORT                 5
-#define MXS40_LIFE_CYCLE_PROV                 6
-#define MXS40_LIFE_CYCLE_NORMAL_PROV          7
-#define MXS40_LIFE_CYCLE_NORMAL_RMA           8
-#define MXS40_LIFE_CYCLE_CORRUPTED            9
+#define MXS40_LIFE_CYCLE_VIRGIN                    0
+#define MXS40_LIFE_CYCLE_NORMAL                    1
+#define MXS40_LIFE_CYCLE_SECURE_DEBUG              2
+#define MXS40_LIFE_CYCLE_SECURE                    3
+#define MXS40_LIFE_CYCLE_RMA                       4
+#define MXS40_LIFE_CYCLE_SORT                      5
+#define MXS40_LIFE_CYCLE_PROV                      6
+#define MXS40_LIFE_CYCLE_NORMAL_PROV               7
+#define MXS40_LIFE_CYCLE_NORMAL_RMA                8
+#define MXS40_LIFE_CYCLE_CORRUPTED                 9
 
 static const char *MXS40_LIFE_CYCLE_STR[] = {
 	"Virgin",
@@ -83,19 +87,23 @@ static const char *MXS40_LIFE_CYCLE_STR[] = {
 	"Corrupted",
 };
 
-#define P6_EFUSE_DEAD_ACCESS_RESTR_OFFSET         0x27
-#define P6_EFUSE_DEAD_ACCESS_RESTR_SIZE           0x02
-#define P6_EFUSE_SECURE_ACCESS_RESTR_OFFSET       0x29
-#define P6_EFUSE_SECURE_ACCESS_RESTR_SIZE         0x02
-#define P6_EFUSE_LIFECYCLE_OFFSET                 0x2B
-#define P6_EFUSE_LIFECYCLE_SIZE                   0x01
+#define P6_EFUSE_DEAD_ACCESS_RESTR_OFFSET          0x27
+#define P6_EFUSE_DEAD_ACCESS_RESTR_SIZE            0x02
+#define P6_EFUSE_SECURE_ACCESS_RESTR_OFFSET        0x29
+#define P6_EFUSE_SECURE_ACCESS_RESTR_SIZE          0x02
+#define P6_EFUSE_LIFECYCLE_OFFSET                  0x2B
+#define P6_EFUSE_LIFECYCLE_SIZE                    0x01
 
-#define TVII_EFUSE_DEAD_ACCESS_RESTR_OFFSET         0x40
-#define TVII_EFUSE_DEAD_ACCESS_RESTR_SIZE           0x03
-#define TVII_EFUSE_SECURE_ACCESS_RESTR_OFFSET       0x3C
-#define TVII_EFUSE_SECURE_ACCESS_RESTR_SIZE         0x03
-#define TVII_EFUSE_LIFECYCLE_OFFSET                 0x00
-#define TVII_EFUSE_LIFECYCLE_SIZE                   0x02
+#define TVII_EFUSE_DEAD_ACCESS_RESTR_OFFSET        0x40
+#define TVII_EFUSE_DEAD_ACCESS_RESTR_SIZE          0x03
+#define TVII_EFUSE_SECURE_ACCESS_RESTR_OFFSET      0x3C
+#define TVII_EFUSE_SECURE_ACCESS_RESTR_SIZE        0x03
+#define TVII_EFUSE_LIFECYCLE_OFFSET                0x00
+#define TVII_EFUSE_LIFECYCLE_SIZE                  0x02
+
+#define MACAW_EFUSE_CHIP_STATE_OFFSET              0x40
+#define MACAW_EFUSE_CHIP_STATE_NORMAL_BIT          3
+#define MACAW_EFUSE_CHIP_STATE_NORMAL              (1 << MACAW_EFUSE_CHIP_STATE_NORMAL_BIT)
 
 
 #define SROMAPI_BLOW_FUSE_MACROPERADDR               32
@@ -111,48 +119,38 @@ static const char *MXS40_LIFE_CYCLE_STR[] = {
 #define SROMAPI_TRANSITION_TO_SECURE                 0x2F000000
 #define SROMAPI_TRANSITION_TO_SECURE_SIZE            12
 
-#define EFUSE_REGIONS_P6_BLE2  0
-#define EFUSE_REGIONS_P6A_2M    1
-#define EFUSE_REGIONS_TVII     2
-
-static struct efuse_regions EFUSE_REGIONS_LIST[] = {
-	/* EFUSE_SKIP_P6_BLE2 */
-	{
-		.lifecycle_offset       = P6_EFUSE_LIFECYCLE_OFFSET,
-		.lifecycle_size         = P6_EFUSE_LIFECYCLE_SIZE,
-		.dead_access_offset     = 0,	/* Do not skip */
-		.dead_access_size       = 0,	/* Do not skip */
-		.secure_access_offset   = 0,	/* Do not skip */
-		.secure_access_size     = 0	/* Do not skip */
-	},
-	/* EFUSE_SKIP_P6A_2M */
-	{
-		.lifecycle_offset       = P6_EFUSE_LIFECYCLE_OFFSET,
-		.lifecycle_size         = P6_EFUSE_LIFECYCLE_SIZE,
-		.dead_access_offset     = P6_EFUSE_DEAD_ACCESS_RESTR_OFFSET,
-		.dead_access_size       = P6_EFUSE_DEAD_ACCESS_RESTR_SIZE,
-		.secure_access_offset   = P6_EFUSE_SECURE_ACCESS_RESTR_OFFSET,
-		.secure_access_size     = P6_EFUSE_SECURE_ACCESS_RESTR_SIZE
-	},
-	/* EFUSE_SKIP_TVII */
-	{
-		.lifecycle_offset       = TVII_EFUSE_LIFECYCLE_OFFSET,
-		.lifecycle_size         = TVII_EFUSE_LIFECYCLE_SIZE,
-		.dead_access_offset     = TVII_EFUSE_DEAD_ACCESS_RESTR_OFFSET,
-		.dead_access_size       = TVII_EFUSE_DEAD_ACCESS_RESTR_SIZE,
-		.secure_access_offset   = TVII_EFUSE_SECURE_ACCESS_RESTR_OFFSET,
-		.secure_access_size     = TVII_EFUSE_SECURE_ACCESS_RESTR_SIZE
-	},
+static const struct efuse_regions efuse_regions_p6_ble2 =
+{
+	.lifecycle_offset       = P6_EFUSE_LIFECYCLE_OFFSET,
+	.lifecycle_size         = P6_EFUSE_LIFECYCLE_SIZE,
+	.dead_access_offset     = 0,	/* Do not skip */
+	.dead_access_size       = 0,	/* Do not skip */
+	.secure_access_offset   = 0,	/* Do not skip */
+	.secure_access_size     = 0		/* Do not skip */
 };
 
+static const struct efuse_regions efuse_regions_p6a_2m =
+{
+	.lifecycle_offset       = P6_EFUSE_LIFECYCLE_OFFSET,
+	.lifecycle_size         = P6_EFUSE_LIFECYCLE_SIZE,
+	.dead_access_offset     = P6_EFUSE_DEAD_ACCESS_RESTR_OFFSET,
+	.dead_access_size       = P6_EFUSE_DEAD_ACCESS_RESTR_SIZE,
+	.secure_access_offset   = P6_EFUSE_SECURE_ACCESS_RESTR_OFFSET,
+	.secure_access_size     = P6_EFUSE_SECURE_ACCESS_RESTR_SIZE
+};
+
+static const struct efuse_regions efuse_regions_tv2 =
+{
+	.lifecycle_offset       = TVII_EFUSE_LIFECYCLE_OFFSET,
+	.lifecycle_size         = TVII_EFUSE_LIFECYCLE_SIZE,
+	.dead_access_offset     = TVII_EFUSE_DEAD_ACCESS_RESTR_OFFSET,
+	.dead_access_size       = TVII_EFUSE_DEAD_ACCESS_RESTR_SIZE,
+	.secure_access_offset   = TVII_EFUSE_SECURE_ACCESS_RESTR_OFFSET,
+	.secure_access_size     = TVII_EFUSE_SECURE_ACCESS_RESTR_SIZE
+};
 
 static const char EFUSE_P6_VOLTAGES[] = "2.5 Volts +/-5 %";
 static const char EFUSE_TVII_VOLTAGES[] = "3.0 - 5.5 Volts";
-static const char EFUSE_MSG1[] =
-	"is required to blow efuse bits. Check the supplied voltage is within";
-static const char EFUSE_MSG2[] =
-	"the required range and pay attend to the precision of power supply and power meter";
-
 static bool g_allow_efuse_programming;
 
 
@@ -267,7 +265,7 @@ static void efuse_get_array_from_file(const uint8_t *file,
 }
 
 /** ***********************************************************************************************
- * @brief returns lifycycle included into programming file
+ * @brief returns lifycycle included into programming file for PSoC 6 devices
  * @param buffer contains whole efuse region
  * @return lifycycle from programming file
  *************************************************************************************************/
@@ -299,7 +297,27 @@ static uint8_t efuse_p6_get_life_cycle_from_file(const uint8_t *buffer)
 }
 
 /** ***********************************************************************************************
- * @brief returns lifycycle included into programming file
+ * @brief returns lifycycle included into programming file for Macaw devices
+ * @param buffer contains whole efuse region
+ * @return lifycycle from programming file
+ *************************************************************************************************/
+static uint8_t efuse_macaw_get_life_cycle_from_file(const uint8_t *buffer)
+{
+	uint8_t ret_life_cycle = 0;
+
+	/* Get lifecycle efuse if present */
+	if (efuse_is_byte_in_file(buffer, MACAW_EFUSE_CHIP_STATE_OFFSET)) {
+		/* Read LifeCycle (CHIP_STATE.NORMAL bit) from programming file */
+		uint8_t life_cycle_byte = efuse_get_byte_from_file(buffer, MACAW_EFUSE_CHIP_STATE_OFFSET);
+		ret_life_cycle = (life_cycle_byte & MACAW_EFUSE_CHIP_STATE_NORMAL)
+			? MXS40_LIFE_CYCLE_NORMAL
+			: MXS40_LIFE_CYCLE_VIRGIN;
+	}
+	return ret_life_cycle;
+}
+
+/** ***********************************************************************************************
+ * @brief returns lifycycle included into programming file for Traveo devices
  * @param buffer contains whole efuse region
  * @return lifycycle from programming file
  *************************************************************************************************/
@@ -366,6 +384,9 @@ static uint8_t efuse_get_life_cycle_from_file(struct flash_bank *bank, const uin
 		case MXS40_VARIANT_PSOC6_BLE2:
 		case MXS40_VARIANT_PSOC6A_2M:
 			ret_life_cycle = efuse_p6_get_life_cycle_from_file(buffer);
+			break;
+		case MXS40_VARIANT_MACAW:
+			ret_life_cycle = efuse_macaw_get_life_cycle_from_file(buffer);
 			break;
 		case MXS40_VARIANT_TRAVEO_II:
 		case MXS40_VARIANT_TRAVEO_II_8M:
@@ -571,27 +592,24 @@ static int efuse_blow_bit(struct flash_bank *bank, uint8_t addr, uint8_t bit_add
 
 	if (bitValue == 0) {
 
-		const char *EFUSE_MSG = "";
+		const char *voltage_msg = "";
 
 		switch (variant) {
 			case MXS40_VARIANT_PSOC6_BLE2:
 			case MXS40_VARIANT_PSOC6A_2M:
-				EFUSE_MSG = EFUSE_P6_VOLTAGES;
+			case MXS40_VARIANT_MACAW:
+				voltage_msg = EFUSE_P6_VOLTAGES;
 				break;
 			case MXS40_VARIANT_TRAVEO_II:
 			case MXS40_VARIANT_TRAVEO_II_8M:
-				EFUSE_MSG = EFUSE_TVII_VOLTAGES;
+				voltage_msg = EFUSE_TVII_VOLTAGES;
 				break;
 			default:
 				LOG_ERROR("efuse_blow_bit. Unknown variant");
 		}
 
-		LOG_ERROR("The efuse bit at address 0x%X[%X] was not blown. %s %s %s",
-			addr,
-			bit_addr,
-			EFUSE_MSG,
-			EFUSE_MSG1,
-			EFUSE_MSG2);
+		LOG_ERROR("The efuse bit at address 0x%X[%X] was not blown. Target voltage %s is required to blow efuse bits",
+			addr, bit_addr, voltage_msg);
 		return ERROR_FLASH_OPERATION_FAILED;
 	}
 	return ERROR_OK;
@@ -677,22 +695,22 @@ exit:
  *************************************************************************************************/
 static int efuse_blow_enable_fbcheck_in_normal(struct flash_bank *bank, uint32_t silicon_id)
 {
-	int hr = ERROR_OK;	
+	int hr = ERROR_OK;
 	enum mxs40_die die;
 	hr = mxs40_identify_die_from_silicon_id(silicon_id, &die);
 	if (hr != ERROR_OK)
 		goto exit;
-	
+
 	uint8_t revision_id = (silicon_id & 0x0000FF00) >> 8;
 
 	if ((die == die_psoc6_512k) || ((die == die_psoc6_2m) && (revision_id >= 0x12 /* A1 (*A) and later*/))) {
 		uint8_t byteAddr;
 		uint8_t bitValue;
 		uint8_t bitAddr = 0;
-		
+
 		for (int i = 1; i <= 4; i++) {
-			byteAddr = MXS40_EFUSE_FACTORY_HASH_OFFSET + MXS40_EFUSE_FACTORY_HASH_SIZE - i;			
-			
+			byteAddr = MXS40_EFUSE_FACTORY_HASH_OFFSET + MXS40_EFUSE_FACTORY_HASH_SIZE - i;
+
 			/* Check current state of eFuse bit */
 			hr = efuse_get_bit(bank, byteAddr, bitAddr, &bitValue);
 			if (hr != ERROR_OK)
@@ -706,7 +724,7 @@ static int efuse_blow_enable_fbcheck_in_normal(struct flash_bank *bank, uint32_t
 			}
 		}
 	}
-	
+
 exit:
 	return hr;
 }
@@ -879,7 +897,7 @@ static int efuse_lifecycle_transitions(struct flash_bank *bank, const uint8_t *b
 					if (is_p6_ble2)
 						hr = efuse_p6_ble2_to_secure(bank, is_debug, buffer);
 					else {	/* is_p6a_2m */
-					    /* Blow ENABLE_FLASH_BOOT_CHECK_IN_NORMAL bits for 512K and newer 2M devices */
+						/* Blow ENABLE_FLASH_BOOT_CHECK_IN_NORMAL bits for 512K and newer 2M devices */
 						hr = efuse_blow_enable_fbcheck_in_normal(bank, silicon_id);
 						if (hr != ERROR_OK)
 							goto exit;
@@ -935,6 +953,20 @@ static bool efuse_is_tv2 (struct flash_bank *bank){
 }
 
 /** ***********************************************************************************************
+ * @brief Checks if passed bank belongs to Macaw device
+ * @param bank current flash bank
+ * @return true if passed bank belongs to Macaw, false - otherwise
+ *************************************************************************************************/
+static bool efuse_is_macaw (struct flash_bank *bank){
+	bool ret = false;
+	struct mxs40_bank_info *info = bank->driver_priv;
+	if(info->regs->variant == MXS40_VARIANT_MACAW)
+		ret = true;
+
+	return ret;
+}
+
+/** ***********************************************************************************************
  * @brief Programs EFuse region
  * @param bank current flash bank
  * @param buffer pointer to the buffer with program data
@@ -947,7 +979,7 @@ int efuse_program_bank(struct flash_bank *bank, const uint8_t *buffer, uint32_t 
 {
 	bool is_tv2 = efuse_is_tv2(bank);
 
-	if (!g_allow_efuse_programming) {
+	if (!g_allow_efuse_programming && !efuse_is_macaw(bank)) {
 		const char* dev_type = is_tv2 ? "traveo2" : "psoc 6";
 		LOG_WARNING("Programming of eFuse bank is skipped. Use '%s allow_efuse_program on|off'"
 			" command to enable|disable programming of efuse bank", dev_type);
@@ -969,10 +1001,12 @@ int efuse_program_bank(struct flash_bank *bank, const uint8_t *buffer, uint32_t 
 	if (hr != ERROR_OK)
 		goto exit;
 
+	bool is_macaw = efuse_is_macaw(bank);
+
 	for (size_t i = 0; i < count; i++) {
 		/* Program all efuses from programming file except lifecycle related data */
 
-		if (efuse_blow_skip(bank, i))
+		if (!is_macaw && efuse_blow_skip(bank, i))
 			continue;
 
 		if (buffer[i] == MXS40_EFUSE_IGNORE)
@@ -1004,7 +1038,8 @@ int efuse_program_bank(struct flash_bank *bank, const uint8_t *buffer, uint32_t 
 	}
 
 	/* Program lifecycle efuses if present */
-	efuse_lifecycle_transitions(bank, buffer);
+	if (!is_macaw)
+		efuse_lifecycle_transitions(bank, buffer);
 
 exit_release:
 	mxs40_sromalgo_release(bank->target);
@@ -1120,6 +1155,7 @@ int efuse_probe(struct flash_bank *bank)
 	assert(bank->size != 0);
 	struct mxs40_bank_info *info = bank->driver_priv;
 
+	bank->base = MXS40_EFUSE_BANK_BASE;
 	bank->chip_width = 1;
 	bank->bus_width = 1;
 	bank->erased_value = 0;
@@ -1155,7 +1191,7 @@ FLASH_BANK_COMMAND_HANDLER(psoc6_ble2_flash_bank_command)
 	info->program_algo_p = p6_program_algo;
 	info->program_algo_size = sizeof(p6_program_algo);
 	info->regs = &psoc6_ble2_regs;
-	info->efuse_regions = &EFUSE_REGIONS_LIST[EFUSE_REGIONS_P6_BLE2];
+	info->efuse_regions = &efuse_regions_p6_ble2;
 	bank->driver_priv = info;
 
 	return ERROR_OK;
@@ -1175,7 +1211,27 @@ FLASH_BANK_COMMAND_HANDLER(psoc6a_2m_flash_bank_command)
 	info->program_algo_p = p6_2m_program_algo;
 	info->program_algo_size = sizeof(p6_2m_program_algo);
 	info->regs = &psoc6_2m_regs;
-	info->efuse_regions = &EFUSE_REGIONS_LIST[EFUSE_REGIONS_P6A_2M];
+	info->efuse_regions = &efuse_regions_p6a_2m;
+	bank->driver_priv = info;
+
+	return ERROR_OK;
+}
+
+FLASH_BANK_COMMAND_HANDLER(macaw_flash_bank_command)
+{
+	if (CMD_ARGC < 6)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	// TODO: What is this for?
+	static const uint8_t p6_2m_program_algo[] = {
+		#include "../../../../contrib/loaders/flash/psoc6/psoc62m_write.inc"
+	};
+
+	struct mxs40_bank_info *info = calloc(1, sizeof(struct mxs40_bank_info));
+	info->is_probed = false;
+	info->program_algo_p = p6_2m_program_algo;
+	info->program_algo_size = sizeof(p6_2m_program_algo);
+	info->regs = &macaw_regs;
 	bank->driver_priv = info;
 
 	return ERROR_OK;
@@ -1196,7 +1252,7 @@ FLASH_BANK_COMMAND_HANDLER(traveo2_flash_bank_command)
 	info->program_algo_size = sizeof(traveo2_program_algo);
 	info->regs = &traveo2_regs;
 	info->size_override = bank->size;
-	info->efuse_regions = &EFUSE_REGIONS_LIST[EFUSE_REGIONS_TVII];
+	info->efuse_regions = &efuse_regions_tv2;
 	bank->driver_priv = info;
 
 	return ERROR_OK;
@@ -1217,11 +1273,62 @@ FLASH_BANK_COMMAND_HANDLER(traveo2_8m_flash_bank_command)
 	info->program_algo_size = sizeof(traveo2_program_algo);
 	info->regs = &traveo2_8m_regs;
 	info->size_override = bank->size;
-	info->efuse_regions = &EFUSE_REGIONS_LIST[EFUSE_REGIONS_TVII];
+	info->efuse_regions = &efuse_regions_tv2;
 	bank->driver_priv = info;
 
 	return ERROR_OK;
 }
+
+COMMAND_HANDLER(handle_blow_efuse_range)
+{
+	if (CMD_ARGC != 3)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	struct target *target = get_current_target(CMD_CTX);
+
+	struct flash_bank *bank = NULL;
+	int hr = get_flash_bank_by_addr(target, MXS40_EFUSE_BANK_BASE, true, &bank);
+	if (ERROR_OK != hr)
+		return hr;
+
+	uint32_t offset;
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], offset);
+
+	uint8_t width;
+	COMMAND_PARSE_NUMBER(u8, CMD_ARGV[1], width);
+	if(!width || width > 64)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	if(offset + width > bank->size) {
+		LOG_ERROR("Cannot cross flash bank borders");
+		return ERROR_FAIL;
+	}
+
+	uint64_t value;
+	COMMAND_PARSE_NUMBER(u64, CMD_ARGV[2], value);
+
+	uint8_t buffer[bank->size];
+	memset(buffer, 0xFF, sizeof(buffer));
+
+	for (uint32_t i = 0; i < width; i++)
+		buffer[offset + i] = (value & (0x01u << i)) ? 1u : 0u;
+
+	return efuse_program_bank(bank, buffer, offset, bank->size);
+}
+
+static const struct command_registration efuse_macaw_exec_command_handlers[] = {
+	{
+		.name = "blow_efuse_range",
+		.handler = handle_blow_efuse_range,
+		.mode = COMMAND_ANY,
+		.usage = "<offset> <width(1...64)> <value>",
+		.help = "Programs given 1...64 bit value to the efuses at given bit offset",
+	},
+	{
+		.chain = macaw_exec_command_handlers,
+	},
+	COMMAND_REGISTRATION_DONE
+};
 
 static const struct command_registration efuse_exec_command_handlers[] = {
 	{
@@ -1256,6 +1363,17 @@ static const struct command_registration efuse_tv2_command_handlers[] = {
 	COMMAND_REGISTRATION_DONE
 };
 
+static const struct command_registration efuse_macaw_command_handlers[] = {
+	{
+		.name = "macaw",
+		.mode = COMMAND_ANY,
+		.help = "MACAW flash command group",
+		.usage = "",
+		.chain = efuse_macaw_exec_command_handlers,
+	},
+	COMMAND_REGISTRATION_DONE
+};
+
 struct flash_driver psoc6_efuse = {
 	.name = "psoc6_efuse",
 	.commands = efuse_p6_command_handlers,
@@ -1276,6 +1394,22 @@ struct flash_driver psoc6_2m_efuse = {
 	.name = "psoc6_2m_efuse",
 	.commands = efuse_p6_command_handlers,
 	.flash_bank_command = psoc6a_2m_flash_bank_command,
+	.erase = efuse_erase,
+	.protect = mxs40_protect,
+	.write = efuse_program_bank,
+	.read = efuse_read_bank,
+	.probe = efuse_probe,
+	.auto_probe = mxs40_auto_probe,
+	.erase_check = default_flash_blank_check,
+	.protect_check = mxs40_protect_check,
+	.info = mxs40_get_info,
+	.free_driver_priv = default_flash_free_driver_priv,
+};
+
+struct flash_driver macaw_efuse = {
+	.name = "macaw_efuse",
+	.commands = efuse_macaw_command_handlers,
+	.flash_bank_command = macaw_flash_bank_command,
 	.erase = efuse_erase,
 	.protect = mxs40_protect,
 	.write = efuse_program_bank,

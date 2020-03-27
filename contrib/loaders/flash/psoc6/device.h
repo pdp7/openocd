@@ -1,3 +1,24 @@
+/***************************************************************************
+ *                                                                         *
+ *   Copyright (C) 2018 by Bohdan Tymkiv                                   *
+ *   bohdan.tymkiv@cypress.com bohdan200@gmail.com                         *
+ *                                                                         *
+ *   Copyright (C) <2019-2020> < Cypress Semiconductor Corporation >       *
+ *                                                                         *
+ *   This program is free software; you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation; either version 2 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
+ *   This program is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU General Public License for more details.                          *
+ *                                                                         *
+ *   You should have received a copy of the GNU General Public License     *
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
+ ***************************************************************************/
+
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -44,6 +65,8 @@
 
 #define SROMAPI_PROGRAMROW_REQ          0x06000100u
 #define SROMAPI_PROGRAMWORK_BULK_REQ    0x30000100u
+#define SROMAPI_ERASESECTOR_REQ         0x14000100u
+#define SROMAPI_ERASEROW_REQ            0x1C000100u
 
 #define SROMAPI_STATUS_MSK              0xF0000000u
 #define SROMAPI_STAT_SUCCESS            0xA0000000u
@@ -58,4 +81,34 @@ static int get_ipc_id(void)
 	uint32_t id = read_io(MXS40_CPUSS_IDENTITY);
 	is_cm0 = (id & MXS40_CPUSS_IDENTITY_MS_MSK) == MXS40_CPUSS_IDENTITY_MS_M0;
 	return is_cm0 ? 0 : 1;
+}
+
+/** *************************************************************************************
+ * @brief Invoke SROM API Function
+ * @param req_buf Address of the buffer with SROM API Request and parameters
+ ***************************************************************************************/
+__inline __attribute__((always_inline))
+static void call_sromapi(uint32_t req_buf)
+{
+	int ipc_id = get_ipc_id();
+
+	/* Acquire the IPC structure */
+	for (;;) {
+		uint32_t val = read_io(REG_IPC_ACQUIRE(ipc_id));
+		bool is_acquired = (val & IPC_ACQUIRE_SUCCESS_MSK) != 0;
+		if (is_acquired)
+			break;
+	}
+
+	/* Invoke SROM API by posting an NMI via IPC */
+	write_io(REG_IPC_DATA(ipc_id), req_buf);
+	write_io(REG_IPC_NOTIFY(ipc_id), 1);
+
+	/* Poll the IPC structure for release */
+	for (;;) {
+		uint32_t lock_stat = read_io(REG_IPC_LOCK_STATUS(ipc_id));
+		bool is_locked = (lock_stat & IPC_LOCK_ACQUIRED_MSK) != 0;
+		if (!is_locked)
+			break;
+	}
 }

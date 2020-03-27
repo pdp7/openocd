@@ -31,7 +31,7 @@
  */
 
 COMMAND_HELPER(flash_command_get_bank_maybe_probe, unsigned name_index,
-	       struct flash_bank **bank, bool do_probe)
+		   struct flash_bank **bank, bool do_probe)
 {
 	const char *name = CMD_ARGV[name_index];
 	int retval;
@@ -63,7 +63,7 @@ COMMAND_HELPER(flash_command_get_bank, unsigned name_index,
 	struct flash_bank **bank)
 {
 	return CALL_COMMAND_HANDLER(flash_command_get_bank_maybe_probe,
-				    name_index, bank, true);
+					name_index, bank, true);
 }
 
 COMMAND_HANDLER(handle_flash_info_command)
@@ -538,7 +538,7 @@ COMMAND_HANDLER(handle_flash_fill_command)
 			" breaks the required alignment of flash bank %s",
 			address, bank->name);
 		LOG_INFO("Padding %" PRId32 " bytes from " TARGET_ADDR_FMT,
-		    padding_at_start, aligned_start);
+			padding_at_start, aligned_start);
 	}
 
 	uint8_t *ptr = buffer + padding_at_start;
@@ -787,7 +787,7 @@ COMMAND_HANDLER(handle_flash_rmw_command)
 	if (hr != ERROR_OK)
 		goto free_rmw_aligned_buf;
 
-	command_print(CMD_CTX, "modified %" PRIu32 " byte(s) in %" PRIu32 " byte region at "
+	command_print(CMD, "modified %" PRIu32 " byte(s) in %" PRIu32 " byte region at "
 		TARGET_ADDR_FMT " in %fs (%0.3f KiB/s)", (uint32_t)rmw_size, rmw_size_aligned,
 		rmw_start_aligned, duration_elapsed(&bench),
 		duration_kbps(&bench, rmw_size_aligned));
@@ -820,7 +820,7 @@ COMMAND_HANDLER(handle_flash_rmw_command)
 		if (hr != ERROR_OK)
 			goto free_verify_buffer;
 
-		command_print(CMD_CTX, "verified %" PRIu32 " bytes in %fs (%0.3f KiB/s)",
+		command_print(CMD, "verified %" PRIu32 " bytes in %fs (%0.3f KiB/s)",
 			rmw_size_aligned, duration_elapsed(&bench),
 			duration_kbps(&bench, rmw_size_aligned));
 
@@ -908,7 +908,7 @@ COMMAND_HANDLER(handle_flash_write_bank_command)
 			" breaks the required alignment of flash bank %s",
 			offset, bank->name);
 		LOG_INFO("Padding %" PRId32 " bytes from " TARGET_ADDR_FMT,
-		    padding_at_start, aligned_start);
+			padding_at_start, aligned_start);
 	}
 
 	uint8_t *ptr = buffer + padding_at_start;
@@ -1177,6 +1177,25 @@ COMMAND_HANDLER(handle_flash_padded_value_command)
 
 	command_print(CMD, "Default padded value set to 0x%" PRIx8 " for flash bank %u", \
 			p->default_padded_value, p->bank_number);
+
+	return retval;
+}
+
+COMMAND_HANDLER(handle_flash_set_mem_mapped_command)
+{
+	if (CMD_ARGC != 2)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	struct flash_bank *p;
+	int retval = CALL_COMMAND_HANDLER(flash_command_get_bank_maybe_probe,
+									  0, &p, false);
+	if (ERROR_OK != retval)
+		return retval;
+
+	COMMAND_PARSE_ON_OFF(CMD_ARGV[1], p->is_memory_mapped);
+
+	command_print(CMD, "Flash bank %s is%s memory mapped", p->name,
+				  p->is_memory_mapped ? "" : " not");
 
 	return retval;
 }
@@ -1498,6 +1517,13 @@ static const struct command_registration flash_config_command_handlers[] = {
 		.mode = COMMAND_ANY,
 		.jim_handler = jim_flash_list,
 		.help = "Returns a list of details about the flash banks.",
+	},
+	{
+		.name = "set_memory_mapped",
+		.handler = handle_flash_set_mem_mapped_command,
+		.mode = COMMAND_ANY,
+		.usage = "bank_id <on|off>",
+		.help = "Turns on or off mem-mapped attribute on the flash bank",
 	},
 	COMMAND_REGISTRATION_DONE
 };

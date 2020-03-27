@@ -119,25 +119,31 @@ static int swd_connect(struct adiv5_dap *dap)
 	}
 
 	/* Note, debugport_init() does setup too */
-	swd->switch_seq(JTAG_TO_SWD);
+	for(int attempts = 0; attempts < 10; attempts++) {
+		swd->switch_seq(JTAG_TO_SWD);
 
-	/* Clear link state, including the SELECT cache. */
-	dap->do_reconnect = false;
-	dap_invalidate_cache(dap);
+		/* Clear link state, including the SELECT cache. */
+		dap->do_reconnect = false;
+		dap_invalidate_cache(dap);
 
-	swd_queue_dp_read(dap, DP_DPIDR, &dpidr);
+		swd_queue_dp_read(dap, DP_DPIDR, &dpidr);
 
-	/* force clear all sticky faults */
-	swd_clear_sticky_errors(dap);
+		/* force clear all sticky faults */
+		swd_clear_sticky_errors(dap);
 
-	status = swd_run_inner(dap);
+		status = swd_run_inner(dap);
+		if(status == ERROR_OK)
+			break;
+	}
 
 	if (status == ERROR_OK) {
 		LOG_INFO("SWD DPIDR %#8.8" PRIx32, dpidr);
 		dap->do_reconnect = false;
 		status = dap_dp_init(dap);
-	} else
+	} else {
 		dap->do_reconnect = true;
+		LOG_DEBUG("DAP '%s' failed to enter SWD mode", dap->tap->dotted_name);
+	}
 
 	return status;
 }

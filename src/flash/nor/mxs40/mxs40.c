@@ -4,6 +4,8 @@
  *   bohdan.tymkiv@cypress.com bohdan200@gmail.com                         *
  *   mykola.tyzyak@cypress.com                                             *
  *                                                                         *
+ *   Copyright (C) <2019-2020> < Cypress Semiconductor Corporation >       *
+ *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
  *   the Free Software Foundation; either version 2 of the License, or     *
@@ -40,6 +42,7 @@ static uint32_t g_sflash_restrictions;
 /* Safe SFLASH regions */
 static size_t g_num_sflash_regions;
 static struct row_region *g_sflash_regions;
+static bool g_sromcall_prepare_called;
 
 enum operation {
 	PROGRAM,
@@ -146,11 +149,6 @@ static int mxs40_ipc_poll_lock_stat(struct flash_bank *bank, bool lock_expected)
 			return ERROR_OK;
 	}
 
-	if (target->coreid) {
-		LOG_WARNING("SROM API calls via CM4 target are supported on single-core MXS40 devices only. "
-			"Please perform all Flash-related operations via CM0+ target on dual-core devices.");
-	}
-
 	LOG_ERROR("Timeout polling IPC Lock Status");
 	return ERROR_TARGET_TIMEOUT;
 }
@@ -175,39 +173,30 @@ static int mxs40_ipc_acquire(struct flash_bank *bank)
 	struct mxs40_bank_info *info = bank->driver_priv;
 
 	mxs40_timeout_init(&to, IPC_TIMEOUT_MS);
-
-	uint32_t ppu_negotiation_count = 3;
 	while (!mxs40_timeout_expired(&to)) {
 		keep_alive();
 
-		enum log_levels level = change_debug_level(LOG_LVL_USER);
-		hr = target_write_u32(target, info->regs->ipc_acquire, IPC_ACQUIRE_SUCCESS_MSK);
-		change_debug_level(level);
-
-		if (hr != ERROR_OK) {
-			if (info->regs->ppu_flush) {
-				LOG_DEBUG("Negotiating PPU buffering issue (reading 0x%08X)", info->regs->ppu_flush);
-
-				level = change_debug_level(LOG_LVL_USER);
-				target_read_u32(target, info->regs->ppu_flush, &reg_val);
-				change_debug_level(level);
-
-				if (--ppu_negotiation_count)
-					continue;
-
-				LOG_ERROR("Unable to write to IPC Acquire register, negotiation failed");
-				return ERROR_TARGET_TIMEOUT;
-			} else {
-				LOG_ERROR("Unable to write to IPC Acquire register, negotiation unavailable");
-				return hr;
-			}
+		/* Workaround for double-buffered PPU */
+		if (info->regs->ppu_flush) {
+			enum log_levels level = change_debug_level(LOG_LVL_USER);
+			hr = target_read_u32(target, info->regs->ppu_flush, &reg_val);
+			change_debug_level(level);
+			info->ppu_read_protected = (hr != ERROR_OK);
 		}
 
+		/* Acquire the IPC structure */
+		hr = target_write_u32(target, info->regs->ipc_acquire, IPC_ACQUIRE_SUCCESS_MSK);
+		if (hr != ERROR_OK) {
+			LOG_ERROR("Unable to write to IPC Acquire register%s",
+					  info->ppu_read_protected ? " (PPU read-protected)" : "");
+			return hr;
+		}
 
 		/* Check if data is written on first step */
 		hr = target_read_u32(target, info->regs->ipc_acquire, &reg_val);
 		if (hr != ERROR_OK) {
-			LOG_ERROR("Unable to read IPC Acquire register");
+			LOG_ERROR("Unable to read IPC Acquire register%s",
+					  info->ppu_read_protected ? " (PPU read-protected)" : "");
 			return hr;
 		}
 
@@ -273,6 +262,38 @@ uint32_t mxs40_probe_mem_area(struct target *target, target_addr_t start_addr, u
 
 	return area_size;
 }
+
+/** ***********************************************************************************************
+ * @brief Locates CM0 core of this chip (if present)
+ * @param this_target current target, name should end with 'sysap'
+ * @return pointer to CM0 core (of NULL)
+ *************************************************************************************************/
+static struct target *mxs40_find_core_by_suffix(struct target *target, const char *suffix)
+{
+	const size_t this_len = strlen(target->cmd_name);
+	size_t last_dot_pos;
+	for(last_dot_pos = this_len; last_dot_pos; last_dot_pos--) {
+		if(target->cmd_name[last_dot_pos] == '.')
+			break;
+	}
+
+	assert(last_dot_pos != 0);
+
+	last_dot_pos++;
+	char *new_name = calloc(1, last_dot_pos + strlen(suffix) + 1);
+	memcpy(new_name, target->cmd_name, last_dot_pos);
+	new_name = strcat(new_name, suffix);
+
+	struct target *result = NULL;
+	for (result = all_targets; result; result = result->next) {
+		if (target_name(result) && strcmp(new_name, target_name(result)) == 0)
+			break;
+	}
+
+	free(new_name);
+	return result;
+}
+
 /** ***********************************************************************************************
  * @brief Starts pseudo flash algorithm and leaves it running. Function allocates working area for
  * algorithm code and CPU stack, adjusts stack pointer, uploads and starts the algorithm.
@@ -284,12 +305,14 @@ uint32_t mxs40_probe_mem_area(struct target *target, target_addr_t start_addr, u
 int mxs40_sromalgo_prepare(struct flash_bank *bank)
 {
 	struct target *target = bank->target;
-	if(target->coreid == 0xFF) { /* Special core_id for fake SysAP */
-		if(target->next && target->next->coreid == 1) {
-			target = target->next;
-		} else {
+
+	/* Special core_id for fake SysAP */
+	if(target->coreid == 0xFF) {
+		struct target *cm0_target = mxs40_find_core_by_suffix(target, "cm0");
+		if(!cm0_target)
 			return ERROR_OK;
-		}
+
+		target = cm0_target;
 	}
 
 	if (target->state != TARGET_HALTED) {
@@ -302,6 +325,19 @@ int mxs40_sromalgo_prepare(struct flash_bank *bank)
 	struct mxs40_bank_info *info = bank->driver_priv;
 	if(info->prepare_function) {
 		hr = info->prepare_function(bank);
+		if (hr != ERROR_OK)
+			return hr;
+	}
+
+	/* Check if IPC_INTR_MASK contains valid value */
+	uint32_t ipc_intr;
+	hr = target_read_u32(target, info->regs->ipc_intr, &ipc_intr);
+	if (hr != ERROR_OK)
+		return hr;
+
+	/* Enable notification interrupt of IPC_INTR_STRUCT for IPC_STRUCT2 */
+	if(!(ipc_intr & info->regs->ipc_intr_msk)) {
+		hr = target_write_u32(target, info->regs->ipc_intr, ipc_intr | info->regs->ipc_intr_msk);
 		if (hr != ERROR_OK)
 			return hr;
 	}
@@ -364,18 +400,19 @@ destroy_rp_free_wa:
  *************************************************************************************************/
 void mxs40_sromalgo_release(struct target *target)
 {
-	int hr = ERROR_OK;
-
-	if(target->coreid == 0xFF) { /* Special core_id for fake SysAP */
-		if(target->next && target->next->coreid == 1) {
-			target = target->next;
-		}
-	}
-
 	if (g_stack_area) {
+		/* Special core_id for fake SysAP */
+		if(target->coreid == 0xFF) {
+			struct target *cm0_target = mxs40_find_core_by_suffix(target, "cm0");
+			if(!cm0_target)
+				return;
+
+			target = cm0_target;
+		}
+
 		/* Stop flash algorithm if it is running */
 		if (target->running_alg) {
-			hr = target_halt(target);
+			int hr = target_halt(target);
 			if (hr != ERROR_OK)
 				goto exit_free_wa;
 
@@ -406,8 +443,16 @@ int mxs40_call_sromapi(struct flash_bank *bank,
 	uint32_t working_area,
 	uint32_t *data_out)
 {
-	int hr;
+	LOG_DEBUG("Executing SROM API #0x%08X", req_and_params);
+
 	struct target *target = bank->target;
+
+	if(!g_stack_area && target->coreid != 0xFF) {
+		LOG_ERROR("SROM Call: target is not prepared for srom calls");
+		return ERROR_FAIL;
+	}
+
+	int hr;
 	struct mxs40_bank_info *info = bank->driver_priv;
 	bool is_data_in_ram = (req_and_params & SROMAPI_DATA_LOCATION_MSK) == 0;
 
@@ -420,11 +465,6 @@ int mxs40_call_sromapi(struct flash_bank *bank,
 	else
 		hr = target_write_u32(target, info->regs->ipc_data, req_and_params);
 
-	if (hr != ERROR_OK)
-		return hr;
-
-	/* Enable notification interrupt of IPC_INTR_STRUCT0(CM0+) for IPC_STRUCT2 */
-	hr = target_write_u32(target, info->regs->ipc_intr, 0x0Fu << 16);
 	if (hr != ERROR_OK)
 		return hr;
 
@@ -668,7 +708,7 @@ int mxs40_get_info(struct flash_bank *bank, char *buf, int buf_size)
 	if (hr != ERROR_OK)
 		return hr;
 
-	snprintf(buf, buf_size, "Silicon ID: 0x%08X\nProtection: %s\n",
+	snprintf(buf, buf_size, "Silicon ID: 0x%08X\nProtection: %s",
 		silicon_id, mxs40_protection_to_str(protection));
 
 	return ERROR_OK;
@@ -748,21 +788,19 @@ exit:
 int mxs40_erase_row(struct flash_bank *bank, uint32_t addr, bool erase_sector)
 {
 	struct target *target = bank->target;
-	struct mxs40_bank_info *info = bank->driver_priv;
 	struct working_area *wa;
 
 	LOG_DEBUG("MXS40 patform: eraseing row @%08X", addr);
+	uint8_t srom_params[2 * sizeof(uint32_t)];
 
-	int hr = target_alloc_working_area(target, info->page_size + 32, &wa);
+	int hr = target_alloc_working_area(target, sizeof(srom_params), &wa);
 	if (hr != ERROR_OK)
 		goto exit;
 
-	hr = target_write_u32(target, wa->address,
-			erase_sector ? SROMAPI_ERASESECTOR_REQ : SROMAPI_ERASEROW_REQ);
-	if (hr != ERROR_OK)
-		goto exit_free_wa;
+	buf_set_u32(srom_params + 0x00, 0, 32, erase_sector ? SROMAPI_ERASESECTOR_REQ : SROMAPI_ERASEROW_REQ);
+	buf_set_u32(srom_params + 0x04, 0, 32, addr);
 
-	hr = target_write_u32(target, wa->address + 0x04, addr);
+	hr = target_write_buffer(target, wa->address, sizeof(srom_params), srom_params);
 	if (hr != ERROR_OK)
 		goto exit_free_wa;
 
@@ -773,6 +811,102 @@ exit_free_wa:
 	target_free_working_area(target, wa);
 
 exit:
+	return hr;
+}
+
+/** ***********************************************************************************************
+ * @brief Performs Erase operation using asynchronous flash algorithm
+ * @param bank current flash bank
+ * @param first first sector to erase
+ * @param last last sector to erase
+ * @param erase_builder_p pointer to erase_builder function
+ * @return ERROR_OK in case of success, ERROR_XXX code otherwise
+ *************************************************************************************************/
+int mxs40_erase_with_algo(struct flash_bank *bank, int first, int last, erase_builder erase_builder_p)
+{
+	int hr;
+	struct target *target = bank->target;
+	struct mxs40_bank_info *info = bank->driver_priv;
+
+	const size_t algo_size = info->erase_algo_size;
+	const uint8_t *algo_p = info->erase_algo_p;
+
+	struct working_area *wa_algorithm;
+	struct working_area *wa_stack;
+	struct working_area *wa_buffer;
+
+	uint32_t address_buffer[last - first + 1];
+	memset(address_buffer, 0, sizeof(address_buffer));
+
+	if(info->prepare_function) {
+		hr = info->prepare_function(bank);
+		if (hr != ERROR_OK)
+			return hr;
+	}
+
+	/* Allocate buffer for the algorithm */
+	hr = target_alloc_working_area(target, algo_size, &wa_algorithm);
+	if (hr != ERROR_OK)
+		return hr;
+
+	/* Write the algorithm code */
+	hr = target_write_buffer(target, wa_algorithm->address, algo_size, algo_p);
+	if (hr != ERROR_OK)
+		goto err_free_wa_algo;
+
+	/* Allocate buffer for the stack */
+	hr = target_alloc_working_area(target, RAM_STACK_WA_SIZE, &wa_stack);
+	if (hr != ERROR_OK)
+		goto err_free_wa_algo;
+
+	/* Allocate circular buffer */
+	hr = target_alloc_working_area(target, 8 * sizeof(uint32_t) + 8, &wa_buffer);
+	if(hr != ERROR_OK)
+		goto err_free_wa_stack;
+
+	size_t num_addresses_in_buffer = erase_builder_p(bank, first, last, address_buffer);
+	struct armv7m_algorithm armv7m_algo;
+	armv7m_algo.common_magic = ARMV7M_COMMON_MAGIC;
+	armv7m_algo.core_mode = ARM_MODE_THREAD;
+
+	struct reg_param reg_params[4];
+	init_reg_param(&reg_params[0], "r0", 32, PARAM_IN_OUT);
+	init_reg_param(&reg_params[1], "r1", 32, PARAM_OUT);
+	init_reg_param(&reg_params[2], "r2", 32, PARAM_OUT);
+	init_reg_param(&reg_params[3], "sp", 32, PARAM_OUT);
+
+	buf_set_u32(reg_params[0].value, 0, 32, wa_buffer->address);
+	buf_set_u32(reg_params[1].value, 0, 32, wa_buffer->address + wa_buffer->size);
+	buf_set_u32(reg_params[2].value, 0, 32, num_addresses_in_buffer);
+	buf_set_u32(reg_params[3].value, 0, 32, wa_stack->address + wa_stack->size);
+
+	progress_init(0, ERASING);
+	hr = target_run_flash_async_algorithm(target, (const uint8_t *)address_buffer, num_addresses_in_buffer,
+			sizeof(uint32_t), 0, NULL, 4, reg_params,
+			wa_buffer->address, wa_buffer->size,
+			wa_algorithm->address, 0, &armv7m_algo);
+
+	if (hr != ERROR_OK) {
+		uint32_t srom_result = buf_get_u32(reg_params[0].value, 0, 32);
+		if ((srom_result & SROMAPI_STATUS_MSK) != SROMAPI_STAT_SUCCESS) {
+			LOG_ERROR("SROM API execution failed. Status: 0x%08X", srom_result);
+			hr = ERROR_FAIL;
+		}
+	}
+
+	destroy_reg_param(&reg_params[0]);
+	destroy_reg_param(&reg_params[1]);
+	destroy_reg_param(&reg_params[2]);
+	destroy_reg_param(&reg_params[3]);
+
+	target_free_working_area(target, wa_buffer);
+
+err_free_wa_stack:
+	target_free_working_area(target, wa_stack);
+
+err_free_wa_algo:
+	target_free_working_area(target, wa_algorithm);
+
 	return hr;
 }
 
@@ -795,24 +929,18 @@ int mxs40_program_row(struct flash_bank *bank, uint32_t addr, const uint8_t *buf
 	int hr;
 
 	LOG_DEBUG("MXS40 patform: programming row @%08X", addr);
+	uint8_t srom_params[4 * sizeof(uint32_t)];
 
-	hr = target_alloc_working_area(target, info->page_size + 32, &wa);
+	hr = target_alloc_working_area(target, sizeof(srom_params) + info->page_size, &wa);
 	if (hr != ERROR_OK)
 		goto exit;
 
-	hr = target_write_u32(target, wa->address, sromapi_req);
-	if (hr != ERROR_OK)
-		goto exit_free_wa;
+	buf_set_u32(srom_params + 0x00, 0, 32, sromapi_req);
+	buf_set_u32(srom_params + 0x04, 0, 32, 0x109);
+	buf_set_u32(srom_params + 0x08, 0, 32, addr);
+	buf_set_u32(srom_params + 0x0C, 0, 32, wa->address + 0x10);
 
-	hr = target_write_u32(target, wa->address + 0x04, 0x109);
-	if (hr != ERROR_OK)
-		goto exit_free_wa;
-
-	hr = target_write_u32(target, wa->address + 0x08, addr);
-	if (hr != ERROR_OK)
-		goto exit_free_wa;
-
-	hr = target_write_u32(target, wa->address + 0x0C, wa->address + 0x10);
+	hr = target_write_buffer(target, wa->address, sizeof(srom_params), srom_params);
 	if (hr != ERROR_OK)
 		goto exit_free_wa;
 
@@ -910,6 +1038,12 @@ int mxs40_program_with_algo(struct flash_bank *bank, const uint8_t *buffer,
 	struct working_area *wa_algorithm;
 	struct working_area *wa_stack;
 	struct working_area *wa_buffer;
+
+	if(info->prepare_function) {
+		hr = info->prepare_function(bank);
+		if (hr != ERROR_OK)
+			return hr;
+	}
 
 	/* Allocate buffer for the algorithm */
 	hr = target_alloc_working_area(target, algo_size, &wa_algorithm);
@@ -1254,6 +1388,12 @@ static struct flash_bank *mxs40_get_any_bank(struct target *target)
 
 COMMAND_HANDLER(mxs40_handle_sromcall_prepare)
 {
+	if(g_sromcall_prepare_called) {
+		LOG_ERROR("SROM Call: prepare/release not in sequence");
+		return ERROR_FAIL;
+	}
+
+	g_sromcall_prepare_called = true;
 	struct flash_bank *bank = mxs40_get_any_bank(get_current_target(CMD_CTX));
 	if(!bank)
 		return ERROR_FAIL;
@@ -1280,10 +1420,11 @@ COMMAND_HANDLER(mxs40_handle_sromcall)
 	}
 
 	struct target *target = get_current_target(CMD_CTX);
-	struct working_area *wa;
+	struct working_area *wa = NULL;
 
 	int hr;
 	bool data_in_ram = (sromapi_params[0] & SROMAPI_DATA_LOCATION_MSK) == 0;
+
 	if(data_in_ram) {
 		hr = target_alloc_working_area(target, CMD_ARGC * sizeof(uint32_t), &wa);
 		if (hr != ERROR_OK)
@@ -1301,9 +1442,9 @@ COMMAND_HANDLER(mxs40_handle_sromcall)
 	}
 
 	uint32_t data_out;
-	hr = mxs40_call_sromapi(bank, sromapi_params[0], data_in_ram ? wa->address : 0, &data_out);
+	hr = mxs40_call_sromapi(bank, sromapi_params[0], wa ? wa->address : 0, &data_out);
 	if(hr == ERROR_OK && data_out != 0xA0000000)
-		command_print(CMD_CTX, "0x%08X", data_out);
+		command_print(CMD, "0x%08X", data_out);
 
 exit_free_wa:
 	if(data_in_ram)
@@ -1315,7 +1456,13 @@ exit:
 
 COMMAND_HANDLER(mxs40_handle_sromcall_release)
 {
+	if(!g_sromcall_prepare_called) {
+		LOG_ERROR("SROM Call: prepare/release not in sequence");
+		return ERROR_FAIL;
+	}
+
 	mxs40_sromalgo_release(get_current_target(CMD_CTX));
+	g_sromcall_prepare_called = false;
 	return ERROR_OK;
 }
 
@@ -1379,3 +1526,36 @@ const struct command_registration mxs40_exec_command_handlers[] = {
 	},
 	COMMAND_REGISTRATION_DONE
 };
+
+const struct command_registration macaw_exec_command_handlers[] = {
+	{
+		.name = "reset_halt",
+		.handler = mxs40_handle_reset_halt,
+		.mode = COMMAND_EXEC,
+		.usage = "[mode (sysresetreq, vectreset), by default core-dependent reset is used]",
+		.help = "Tries to simulate broken Vector Catch",
+	},
+	{
+		.name = "sromcall_prepare",
+		.handler = mxs40_handle_sromcall_prepare,
+		.mode = COMMAND_ANY,
+		.usage = "",
+		.help = "Prepares mxs40 driver for direct srom calls",
+	},
+	{
+		.name = "sromcall",
+		.handler = mxs40_handle_sromcall,
+		.mode = COMMAND_ANY,
+		.usage = "<call_id> [param1] [param2] ...",
+		.help = "Calls SROM API function <call_id> with arbitrary number of additional parameters",
+	},
+	{
+		.name = "sromcall_release",
+		.handler = mxs40_handle_sromcall_release,
+		.mode = COMMAND_ANY,
+		.usage = "",
+		.help = "Releases resources allocated by 'sromcall_prepare'",
+	},
+	COMMAND_REGISTRATION_DONE
+};
+

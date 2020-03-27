@@ -64,6 +64,7 @@ extern const struct flash_driver numicro_flash;
 extern const struct flash_driver ocl_flash;
 extern const struct flash_driver pic32mx_flash;
 extern const struct flash_driver psoc4_flash;
+extern const struct flash_driver psoc4_flash_prot;
 extern const struct flash_driver psoc5lp_flash;
 extern const struct flash_driver psoc5lp_eeprom_flash;
 extern const struct flash_driver psoc5lp_nvl_flash;
@@ -71,6 +72,7 @@ extern const struct flash_driver psoc6_efuse;
 extern const struct flash_driver psoc6_2m_efuse;
 extern const struct flash_driver psoc6_flash;
 extern const struct flash_driver psoc6_2m_flash;
+extern const struct flash_driver macaw_efuse;
 extern const struct flash_driver renesas_rpchf_flash;
 extern const struct flash_driver sh_qspi_flash;
 extern const struct flash_driver sim3x_flash;
@@ -145,6 +147,7 @@ static const struct flash_driver * const flash_drivers[] = {
 	&ocl_flash,
 	&pic32mx_flash,
 	&psoc4_flash,
+	&psoc4_flash_prot,
 	&psoc5lp_flash,
 	&psoc5lp_eeprom_flash,
 	&psoc5lp_nvl_flash,
@@ -152,6 +155,7 @@ static const struct flash_driver * const flash_drivers[] = {
 	&psoc6_2m_efuse,
 	&psoc6_flash,
 	&psoc6_2m_flash,
+	&macaw_efuse,
 	&renesas_rpchf_flash,
 	&sh_qspi_flash,
 	&sim3x_flash,

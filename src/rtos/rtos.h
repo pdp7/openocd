@@ -81,6 +81,8 @@ struct rtos_type {
 	int (*get_symbol_list_to_lookup)(symbol_table_elem_t *symbol_list[]);
 	int (*clean)(struct target *target);
 	char * (*ps_command)(struct target *target);
+	int (*set_reg)(struct rtos *rtos, uint32_t reg_num, uint8_t *reg_value);
+	int (*wipe)(struct target *target);
 };
 
 struct stack_register_offset {
@@ -110,6 +112,8 @@ struct rtos_register_stacking {
 #define GDB_THREAD_PACKET_NOT_CONSUMED (-40)
 
 int rtos_create(Jim_GetOptInfo *goi, struct target *target);
+void rtos_cleanup(struct target *target);
+int rtos_set_reg(struct connection *connection, int reg_num,
 		uint8_t *reg_value);
 int rtos_generic_stack_read(struct target *target,
 		const struct rtos_register_stacking *stacking,

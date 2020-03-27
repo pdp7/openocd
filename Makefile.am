@@ -95,7 +95,7 @@ FLM_PATH = flm
 TCL_FILES = find $(srcdir)/$(TCL_PATH) -name '*.cfg' -o -name '*.tcl' -o -name '*.txt' | \
 		sed -e 's,^$(srcdir)/$(TCL_PATH),,'
 
-FLM_FILES = find $(srcdir)/$(FLM_PATH) -name '*.flm' -o -name '*.elf' | \
+FLM_FILES = find $(srcdir)/$(FLM_PATH) -name '*.flm' -o -name '*.elf' -o -name '*.txt' | \
 		sed -e 's,^$(srcdir)/$(FLM_PATH),,'
 
 dist-hook:

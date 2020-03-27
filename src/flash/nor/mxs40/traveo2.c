@@ -4,6 +4,8 @@
  *   bohdan.tymkiv@cypress.com bohdan200@gmail.com                         *
  *   mykola.tyzyak@cypress.com                                             *
  *                                                                         *
+ *   Copyright (C) <2019-2020> < Cypress Semiconductor Corporation >       *
+ *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
  *   the Free Software Foundation; either version 2 of the License, or     *
@@ -79,6 +81,7 @@ const struct mxs40_regs traveo2_regs = {
 	.ipc_data = MEM_IPC2_DATA,
 	.ipc_lock_stat = MEM_IPC2_LOCK_STATUS,
 	.ipc_intr = MEM_IPC2_INTR_MASK,
+	.ipc_intr_msk = IPC_INTR_MASK_2_CORE,
 	.vtbase = {MEM_VTBASE2_CM0, MEM_VTBASE2_CM4, 0, },
 	.mem_base_main = {0x10000000, 0,},
 	.mem_base_work = {0x14000000, 0,},
@@ -99,6 +102,7 @@ const struct mxs40_regs traveo2_8m_regs = {
 	.ipc_data = MEM_IPC3_DATA,
 	.ipc_lock_stat = MEM_IPC3_LOCK_STATUS,
 	.ipc_intr = MEM_IPC2_INTR_MASK,
+	.ipc_intr_msk = IPC_INTR_MASK_3_CORE,
 	.vtbase = {MEM_VTBASE2_CM0, MEM_VTBASE2_CM4, 0, },
 	.mem_base_main = {0x10000000, // present on Si and PSVP
 					  0x102f8000, 0x105F0000, 0x10610000, // 6M PSVP
@@ -266,6 +270,23 @@ static int traveo2_flash_read(struct flash_bank *bank, uint8_t *buffer, uint32_t
 }
 
 /** ***********************************************************************************************
+ * @brief builds data buffer with list of sectors addresses to erase
+ * @param bank current flash bank
+ * @param first first sector to erase
+ * @param last last sector to erase
+ * @param address_buffer pointer to the buffer
+ * @return number of addresses in the buffer
+ *************************************************************************************************/
+static size_t traveo2_erase_builder(struct flash_bank *bank, int first, int last, uint32_t *address_buffer)
+{
+	size_t sector_count = 0;
+	for(int i = first; i < last - first + 1; i++)
+		address_buffer[sector_count++] = (bank->base + bank->sectors[i].offset) | 1u;
+
+	return sector_count;
+}
+
+/** ***********************************************************************************************
  * @brief Performs Erase operation. Function will try to use biggest erase block possible to
  * speedup the operation.
  *
@@ -276,16 +297,19 @@ static int traveo2_flash_read(struct flash_bank *bank, uint8_t *buffer, uint32_t
  *************************************************************************************************/
 static int traveo2_erase(struct flash_bank *bank, int first, int last)
 {
-	struct target *target = bank->target;
 	struct mxs40_bank_info *info = bank->driver_priv;
-	int hr;
 
 	if (mxs40_flash_bank_matches(bank, info->regs->mem_base_sflash, NULL)) {
 		mxs40_erase_sflash(bank, first, last);
 		return ERROR_OK;
 	}
 
-	hr = mxs40_sromalgo_prepare(bank);
+	if(bank->target->coreid != 0xFF)
+		return mxs40_erase_with_algo(bank, first, last, traveo2_erase_builder);
+
+	/* Fallback for SYS_AP */
+	struct target *target = bank->target;
+	int hr = mxs40_sromalgo_prepare(bank);
 	if (hr != ERROR_OK)
 		goto exit;
 
@@ -415,7 +439,7 @@ static int traveo2_probe(struct flash_bank *bank)
 
 	bank->write_start_alignment = info->page_size;
 	bank->write_end_alignment = info->page_size;
-	bank->minimal_write_gap = info->page_size;
+	bank->minimal_write_gap = FLASH_WRITE_GAP_SECTOR;
 
 	bank->num_sectors = large_sec_num + small_sec_num;
 	bank->sectors = calloc(bank->num_sectors, sizeof(struct flash_sector));
@@ -445,9 +469,15 @@ static void traveo2_flash_bank_command_inner(struct flash_bank *bank)
 		#include "../../../../contrib/loaders/flash/psoc6/tv2_write.inc"
 	};
 
+	static const uint8_t traveo2_erase_algo[] = {
+		#include "../../../../contrib/loaders/flash/psoc6/tv2_erase.inc"
+	};
+
 	struct mxs40_bank_info *info = calloc(1, sizeof(struct mxs40_bank_info));
 	info->program_algo_p = traveo2_program_algo;
 	info->program_algo_size = sizeof(traveo2_program_algo);
+	info->erase_algo_p = traveo2_erase_algo;
+	info->erase_algo_size = sizeof(traveo2_erase_algo);
 	info->size_override = bank->size;
 	info->prepare_function = traveo2_prepare;
 

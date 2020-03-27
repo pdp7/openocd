@@ -4,6 +4,8 @@
  *   bohdan.tymkiv@cypress.com bohdan200@gmail.com                         *
  *   mykola.tyzyak@cypress.com                                             *
  *                                                                         *
+ *   Copyright (C) <2019-2020> < Cypress Semiconductor Corporation >       *
+ *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
  *   the Free Software Foundation; either version 2 of the License, or     *
@@ -35,6 +37,7 @@ struct mxs40_regs {
 	uint32_t ipc_data;
 	uint32_t ipc_lock_stat;
 	uint32_t ipc_intr;
+	uint32_t ipc_intr_msk;
 	uint32_t ppu_flush;
 	uint32_t vtbase[4];
 	uint32_t mem_base_main[6];
@@ -44,9 +47,13 @@ struct mxs40_regs {
 
 #define MXS40_VARIANT_PSOC6_BLE2            1
 #define MXS40_VARIANT_PSOC6A_2M             2
-#define MXS40_VARIANT_TRAVEO_II             3
-#define MXS40_VARIANT_TRAVEO_II_8M          4
+#define MXS40_VARIANT_MACAW                 3
+#define MXS40_VARIANT_TRAVEO_II             4
+#define MXS40_VARIANT_TRAVEO_II_8M          5
 
+#define IPC_INTR_MASK_1_CORE                (0x02u << 16u)
+#define IPC_INTR_MASK_2_CORE                (0x04u << 16u)
+#define IPC_INTR_MASK_3_CORE                (0x08u << 16u)
 
 #define SROMAPI_SIID_REQ                    0x00000001u
 #define SROMAPI_SIID_REQ_FAMILY_REVISION    (SROMAPI_SIID_REQ | 0x000u)
@@ -83,6 +90,8 @@ struct mxs40_regs {
 extern const struct mxs40_regs psoc6_ble2_regs;
 /* PSoC6A2M registers */
 extern const struct mxs40_regs psoc6_2m_regs;
+/* Macaw registers */
+extern const struct mxs40_regs macaw_regs;
 /* Traveo-II registers */
 extern const struct mxs40_regs traveo2_regs;
 /* Traveo-II 8M registers */
@@ -95,7 +104,8 @@ enum reset_halt_mode {
 };
 
 /* MXS40 Device Family/Die */
-enum mxs40_die {             /* Device Family    | Family ID | Si ID Range */
+enum mxs40_die {
+							 /* Device Family    | Family ID | Si ID Range */
 	die_psoc6_ble2 = 0x100u, /* PSoC6A-BLE2      | 0x100     | E200-E2FF   */
 	die_traveo2_1m = 0x101u, /* TraveoII B-E-1M  | 0x101     | E300-E3FF   */
 	die_psoc6_2m   = 0x102u, /* PSoC6A-2M        | 0x102     | E400-E4FF   */
@@ -103,6 +113,7 @@ enum mxs40_die {             /* Device Family    | Family ID | Si ID Range */
 	die_traveo2_2m = 0x104u, /* TraveoII B-E-2M  | 0x104     | E600-E6FF   */
 	die_psoc6_512k = 0x105u, /* PSoC6A-512K      | 0x105     | E700-E7FF   */
 	die_traveo2_cl = 0x106u, /* TraveoII Cluster | 0x106     | E800-E8FF   */
+	die_macaw      = 0x109u, /* Macaw            | 0x109     | EA40-EA7F   */
 	die_unknown    = 0xFFFu  /* Unknown or onsupported                     */
 };
 
@@ -117,11 +128,14 @@ struct efuse_regions {
 } ;
 
 struct mxs40_bank_info {
+	bool is_probed;
+	bool ppu_read_protected;
 	uint32_t size_override;
 	uint32_t page_size;
-	bool is_probed;
-	const uint8_t *program_algo_p;
 	size_t program_algo_size;
+	size_t erase_algo_size;
+	const uint8_t *program_algo_p;
+	const uint8_t *erase_algo_p;
 	const struct mxs40_regs *regs;
 	const struct efuse_regions *efuse_regions;
 	int (*prepare_function) (struct flash_bank *bank);
@@ -139,6 +153,9 @@ struct row_region {
 };
 
 extern const struct command_registration mxs40_exec_command_handlers[];
+extern const struct command_registration macaw_exec_command_handlers[];
+
+typedef size_t (*erase_builder)(struct flash_bank *bank, int first, int last, uint32_t *address_buffer);
 
 /** ***********************************************************************************************
  * @brief Initializes `struct timeout` structure with given timeout value
@@ -228,6 +245,7 @@ int mxs40_get_silicon_id(struct flash_bank *bank, uint32_t *si_id, uint8_t *prot
  *        TraveoII B-E-2M  | 0x104     | E600-E6FF
  *        PSoC6A-512K      | 0x105     | E700-E7FF
  *        TraveoII Cluster | 0x106     | E800-E8FF
+ *        Macaw            | 0x109     | EA40-EA7F
  * @param silicon_id Silicon ID of the following format:
  *  [31:24]       | [23:16]       | [15:12]       | [11:8]        | [7:0]
  *  Silicon Id Hi | Silicon ID Lo | Major Rev. Id | Minor Rev. Id | Family Id Lo
@@ -283,6 +301,16 @@ int mxs40_erase_sflash(struct flash_bank *bank, int first, int last);
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
  *************************************************************************************************/
 int mxs40_erase_row(struct flash_bank *bank, uint32_t addr, bool erase_sector);
+
+/** ***********************************************************************************************
+ * @brief Performs Erase operation using asynchronous flash algorithm
+ * @param bank current flash bank
+ * @param first first sector to erase
+ * @param last last sector to erase
+ * @param erase_builder_p pointer to erase_builder function
+ * @return ERROR_OK in case of success, ERROR_XXX code otherwise
+ *************************************************************************************************/
+int mxs40_erase_with_algo(struct flash_bank *bank, int first, int last, erase_builder erase_builder_p);
 
 /** ***********************************************************************************************
  * @brief Programs single Flash Row

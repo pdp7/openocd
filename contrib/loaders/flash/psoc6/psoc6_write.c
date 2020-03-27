@@ -1,3 +1,24 @@
+/***************************************************************************
+ *                                                                         *
+ *   Copyright (C) 2018 by Bohdan Tymkiv                                   *
+ *   bohdan.tymkiv@cypress.com bohdan200@gmail.com                         *
+ *                                                                         *
+ *   Copyright (C) <2019-2020> < Cypress Semiconductor Corporation >       *
+ *                                                                         *
+ *   This program is free software; you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation; either version 2 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
+ *   This program is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU General Public License for more details.                          *
+ *                                                                         *
+ *   You should have received a copy of the GNU General Public License     *
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
+ ***************************************************************************/
+
 #include "device.h"
 #include "flashboot.h"
 
@@ -30,37 +51,6 @@ static uint32_t soft_clz(uint32_t data)
 }
 
 /** *************************************************************************************
- * @brief Invoke SROM API Function
- * @param req_buf Address of the buffer with SROM API Request and parameters
- ***************************************************************************************/
-__inline __attribute__((always_inline))
-static void call_sromapi(uint32_t req_buf)
-{
-	int ipc_id = get_ipc_id();
-
-	/* Acquire the IPC structure */
-	for (;;) {
-		uint32_t val = read_io(REG_IPC_ACQUIRE(ipc_id));
-		bool is_acquired = (val & IPC_ACQUIRE_SUCCESS_MSK) != 0;
-		if (is_acquired)
-			break;
-	}
-
-	/* Invoke SROM API by posting an NMI via IPC */
-	write_io(REG_IPC_DATA(ipc_id), req_buf);
-	write_io(REG_IPC_INTR_MASK(IPC_INTR_ID), 1u << (16 + ipc_id));
-	write_io(REG_IPC_NOTIFY(ipc_id), 1);
-
-	/* Poll the IPC structure for release */
-	for (;;) {
-		uint32_t lock_stat = read_io(REG_IPC_LOCK_STATUS(ipc_id));
-		bool is_locked = (lock_stat & IPC_LOCK_ACQUIRED_MSK) != 0;
-		if (!is_locked)
-			break;
-	}
-}
-
-/** *************************************************************************************
  * @brief Performs programming of a single Flash Row
  * @param src Address of the RAM buffer to be programmed
  * @param dst Target Flash address
@@ -68,7 +58,7 @@ static void call_sromapi(uint32_t req_buf)
 __inline __attribute__((always_inline))
 static uint32_t program_row(uint32_t src, uint32_t dst, uint32_t write_param)
 {
-	uint32_t req[4];
+	volatile uint32_t req[4];
 #if (MXS40_VARIANT == MXS40_VARIANT_TRAVEO_II)
 	if ((dst & 0xFF000000) == 0x14000000 && write_param != 0x102) {
 		/* Use bulk request only for Work Flash and only if program page
@@ -119,6 +109,12 @@ void write(volatile struct circular_buffer *work_area, uint32_t fifo_end,
 	__asm volatile ("cpsie i" : : : "memory");
 	const uint32_t page_size = get_page_size(target_address);
 	const uint32_t write_param = 0x100 | (31 - soft_clz(page_size));
+
+	const int ipc_id = get_ipc_id();
+	const uint32_t ipc_intr_mask = read_io(REG_IPC_INTR_MASK(IPC_INTR_ID));
+	const uint32_t ipc_intr_mask_ok = 1u << (16 + ipc_id);
+	if((ipc_intr_mask & ipc_intr_mask_ok) == 0)
+		write_io(REG_IPC_INTR_MASK(IPC_INTR_ID), ipc_intr_mask | ipc_intr_mask_ok);
 
 	while (count) {
 		/* Wait for some data in the FIFO */

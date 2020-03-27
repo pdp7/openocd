@@ -15,7 +15,9 @@ static const char *progress_str[] = {
 
 void progress_init(size_t total, enum progress_type type)
 {
-	op_type = progress_str[type];
+	if(!op_type)
+		op_type = progress_str[type];
+
 	total_size = total;
 	prev_bar_width = 0;
 }

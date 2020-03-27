@@ -3,6 +3,8 @@
  *   Copyright (C) 2018 by Bohdan Tymkiv                                   *
  *   bohdan.tymkiv@cypress.com bohdan200@gmail.com                         *
  *                                                                         *
+ *   Copyright (C) <2019-2020> < Cypress Semiconductor Corporation >       *
+ *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
  *   the Free Software Foundation; either version 2 of the License, or     *
@@ -44,9 +46,11 @@
 #define KP3_LED_STATE_SUCCESS             0x02u
 #define KP3_LED_STATE_ERROR               0x03u
 
-#define INVOKE_CMSIS_DAP(name, ...)       cmsis_dap_interface.name(__VA_ARGS__)
+#define INVOKE_CMSIS_DAP(name, ...)       cmsis_dap_adapter_driver.name(__VA_ARGS__)
 
-extern struct jtag_interface kitprog3_interface;
+extern struct adapter_driver kitprog3_adapter_driver;
+extern struct jtag_interface kitprog3_dap_interface ;
+
 static bool power_dropout_detected;
 
 struct acquire_config {
@@ -359,6 +363,20 @@ static int kitprog3_check_version(void)
 	uint16_t kit_fw_minor = dap->packet_buffer[4] + (dap->packet_buffer[5] << 8);
 	uint16_t fw_build_number = dap->packet_buffer[10] + (dap->packet_buffer[11] << 8);
 
+	LOG_INFO("KitProg3: FW version: %d.%d.%d", kit_fw_major, kit_fw_minor, fw_build_number);
+
+	/* Workaround for KP3 FW < 1.20.591 in BULK mode */
+	if( (kit_fw_major < 1 ||
+		(kit_fw_major == 1 && kit_fw_minor < 20) ||
+		(kit_fw_major == 1 && kit_fw_minor == 20 && fw_build_number < 591)) &&
+		!cmsis_dap_handle->is_hid)
+	{
+		cmsis_dap_handle->packet_count = 1;
+		LOG_INFO("KitProg3: Pipelined transfers disabled, please update the firmware");
+	} else {
+		LOG_INFO("KitProg3: Pipelined transfers enabled");
+	}
+
 	if(!g_kit_fw_major)
 		return ERROR_OK;
 
@@ -388,10 +406,10 @@ warn_user:
  *************************************************************************************************/
 static int kitprog3_init(void)
 {
-	kitprog3_interface.execute_queue   = cmsis_dap_interface.execute_queue;
-	kitprog3_interface.speed = cmsis_dap_interface.speed;
-	kitprog3_interface.speed_div = cmsis_dap_interface.speed_div;
-	kitprog3_interface.khz = cmsis_dap_interface.khz;
+	kitprog3_adapter_driver.speed = cmsis_dap_adapter_driver.speed;
+	kitprog3_adapter_driver.speed_div = cmsis_dap_adapter_driver.speed_div;
+	kitprog3_adapter_driver.khz = cmsis_dap_adapter_driver.khz;
+	kitprog3_adapter_driver.reset = cmsis_dap_adapter_driver.reset;
 
 	int hr = INVOKE_CMSIS_DAP(init);
 	if (hr != ERROR_OK)
@@ -517,7 +535,7 @@ COMMAND_HANDLER(cmsis_dap_handle_get_power_command)
 	if (hr != ERROR_OK)
 		return hr;
 
-	command_print(CMD_CTX, "VTarget = %u.%03u V", voltage / 1000, voltage % 1000);
+	command_print(CMD, "VTarget = %u.%03u V", voltage / 1000, voltage % 1000);
 	return ERROR_OK;
 }
 
@@ -546,7 +564,7 @@ COMMAND_HANDLER(cmsis_dap_handle_get_version_command)
 
 	uint16_t fw_build_number = dap->packet_buffer[10] + (dap->packet_buffer[11] << 8);
 
-	command_print(CMD_CTX, "KitProg3 FW Ver = %u.%u.%u, HW ID = %u, KHPI Ver = %u.%u",
+	command_print(CMD, "KitProg3 FW Ver = %u.%u.%u, HW ID = %u, KHPI Ver = %u.%u",
 				 kit_fw_major, kit_fw_minor, fw_build_number, kit_hw_id, kit_prot_major, kit_prot_minor);
 
 	return ERROR_OK;
@@ -683,16 +701,19 @@ static int kitprog3_power_dropout(int *power_dropout)
 }
 
 static const char *const kitprog3_transport[] = { "swd", "jtag", NULL };
-struct jtag_interface kitprog3_interface = {
+
+struct adapter_driver kitprog3_adapter_driver = {
 	.name = "kitprog3",
 	.commands = kitprog3_command_handlers,
-	.swd = &cmsis_dap_swd_driver,
 	.transports = kitprog3_transport,
-	.execute_queue = NULL,
 	.speed = NULL,
 	.speed_div = NULL,
 	.khz = NULL,
+	.reset = NULL,
 	.init = kitprog3_init,
 	.quit = kitprog3_quit,
 	.power_dropout = kitprog3_power_dropout,
+
+	.jtag_ops = &cmsis_dap_interface,
+	.swd_ops = &cmsis_dap_swd_driver,
 };

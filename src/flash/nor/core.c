@@ -754,8 +754,20 @@ int flash_write_unlock(struct target *target, struct image *image,
 		retval = get_flash_bank_by_addr(target, run_address, false, &c);
 		if (retval != ERROR_OK)
 			goto done;
+
 		if (c == NULL) {
 			LOG_WARNING("no flash bank found for address " TARGET_ADDR_FMT, run_address);
+			section++;	/* and skip it */
+			section_offset = 0;
+			continue;
+		}
+
+		/* Allow flash bank to have zero size
+		 * Usefull when bank is defined in config but not implemented
+		 * in some target variants */
+		if (c->size == 0) {
+			LOG_WARNING("flash bank at address " TARGET_ADDR_FMT
+						" not implemented in the target", run_address);
 			section++;	/* and skip it */
 			section_offset = 0;
 			continue;

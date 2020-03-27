@@ -131,7 +131,7 @@ extern struct adapter_driver cmsis_dap_adapter_driver;
 #endif
 #if BUILD_KITPROG == 1
 extern struct adapter_driver kitprog_adapter_driver;
-extern struct jtag_interface kitprog3_interface;
+extern struct adapter_driver kitprog3_adapter_driver;
 #endif
 #if BUILD_IMX_GPIO == 1
 extern struct adapter_driver imx_gpio_adapter_driver;
@@ -243,7 +243,7 @@ struct adapter_driver *adapter_drivers[] = {
 #endif
 #if BUILD_KITPROG == 1
 		&kitprog_adapter_driver,
-		&kitprog3_interface,
+		&kitprog3_adapter_driver,
 #endif
 #if BUILD_IMX_GPIO == 1
 		&imx_gpio_adapter_driver,

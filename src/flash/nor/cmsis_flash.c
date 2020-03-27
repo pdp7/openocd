@@ -3,6 +3,8 @@
  *   Copyright (C) 2018 by Bohdan Tymkiv                                   *
  *   bohdan.tymkiv@cypress.com bohdan200@gmail.com                         *
  *                                                                         *
+ *   Copyright (C) <2019-2020> < Cypress Semiconductor Corporation >       *
+ *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
  *   the Free Software Foundation; either version 2 of the License, or     *
@@ -592,7 +594,7 @@ static int cmsis_flash_probe(struct flash_bank *bank)
 
 	bank->write_start_alignment = algo->flash_dev.sz_page;
 	bank->write_end_alignment = algo->flash_dev.sz_page;
-	bank->minimal_write_gap = algo->flash_dev.sz_page;
+	bank->minimal_write_gap = FLASH_WRITE_GAP_SECTOR;
 	bank->erased_value = algo->flash_dev.val_empty;
 	bank->default_padded_value = algo->flash_dev.val_empty;
 	bank->bus_width = 4;

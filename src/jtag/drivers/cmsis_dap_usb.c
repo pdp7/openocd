@@ -14,6 +14,12 @@
  *   Copyright (C) 2013 by Spencer Oliver                                  *
  *   spen@spen-soft.co.uk                                                  *
  *                                                                         *
+ *   Copyright (C) 2019 by Bohdan Tymkiv, Mykola Tuzyak                    *
+ *   bohdan.tymkiv@cypress.com bohdan200@gmail.com                         *
+ *   mykola.tyzyak@cypress.com                                             *
+ *                                                                         *
+ *   Copyright (C) <2019-2020> < Cypress Semiconductor Corporation >       *
+ *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
  *   the Free Software Foundation; either version 2 of the License, or     *
@@ -314,7 +320,7 @@ static bool cmsis_dap_is_bulk(struct libusb_device_descriptor *usb_desc, libusb_
 	}
 
 	if (found)
-		return true;
+			return true;
 	else
 		return false;
 }
@@ -333,7 +339,7 @@ static int cmsis_dap_usb_open(void)
 		if (ret != len) {
 			LOG_ERROR("unable to process serial numbr");
 			return ERROR_FAIL;
-		}
+	}
 
 		cmsis_dap_serial_c[len] = '\0';
 	}
@@ -357,7 +363,7 @@ static int cmsis_dap_usb_open(void)
 	if (num_devices < 0) {
 		LOG_ERROR("unable to get list of LibUSB devices");
 		return ERROR_FAIL;
-	}
+		}
 
 	bool found = false;
 	//bool serial_found = false;
@@ -372,7 +378,7 @@ static int cmsis_dap_usb_open(void)
 
 		/* ignore device in case any error */
 		if (libusb_get_device_descriptor(usb_devices[i], &usb_desc) != 0)
-			continue;
+					continue;
 
 		if (0 == cmsis_dap_vid[0]) {
 			/* user hasn't specified VID:PID */
@@ -385,8 +391,8 @@ static int cmsis_dap_usb_open(void)
 					cmsis_dap_pid[j] == usb_desc.idProduct) {
 					found = cmsis_dap_is_bulk(&usb_desc, usb_devices[i]);
 					if (found)
-						break;
-				}
+			break;
+		}
 			}
 		}
 
@@ -413,7 +419,7 @@ static int cmsis_dap_usb_open(void)
 					LOG_DEBUG("CMSIS-DAP USB: BULK : SN was not obtained");
 				}
 			} else
-				break;
+			break;
 
 			found = false;
 		}
@@ -441,11 +447,11 @@ static int cmsis_dap_usb_open(void)
 		struct hid_device_info *devs, *cur_dev;
 		//wchar_t *target_serial = NULL;
 
-		/*
-		 * The CMSIS-DAP specification stipulates:
-		 * "The Product String must contain "CMSIS-DAP" somewhere in the string. This is used by the
-		 * debuggers to identify a CMSIS-DAP compliant Debug Unit that is connected to a host computer."
-		 */
+	/*
+	 * The CMSIS-DAP specification stipulates:
+	 * "The Product String must contain "CMSIS-DAP" somewhere in the string. This is used by the
+	 * debuggers to identify a CMSIS-DAP compliant Debug Unit that is connected to a host computer."
+	 */
 		devs = hid_enumerate(0x0, 0x0);
 		cur_dev = devs;
 		while (NULL != cur_dev) {
@@ -465,7 +471,7 @@ static int cmsis_dap_usb_open(void)
 								found = false;
 					}
 				}
-			} else {
+	} else {
 				/* otherwise, exhaustively compare against all VID:PID in list */
 				for (i = 0; cmsis_dap_vid[i] || cmsis_dap_pid[i]; i++) {
 					if ((cmsis_dap_vid[i] == cur_dev->vendor_id) &&
@@ -513,30 +519,30 @@ static int cmsis_dap_usb_open(void)
 			target_vid = cur_dev->vendor_id;
 			target_pid = cur_dev->product_id;
 			is_hid = true;
-		} 
-		
-		if (target_vid == 0 && target_pid == 0) {
-		 	hid_free_enumeration(devs);
-		 	LOG_ERROR("unable to find CMSIS-DAP device");
-		 	return ERROR_FAIL;
-		 }
-
-		if (hid_init() != 0) {
-			hid_free_enumeration(devs);
-			LOG_ERROR("unable to open HIDAPI");
-			return ERROR_FAIL;
 		}
+
+		if (target_vid == 0 && target_pid == 0) {
+			hid_free_enumeration(devs);
+			LOG_ERROR("unable to find CMSIS-DAP device");
+			return ERROR_FAIL;
+	}
+
+	if (hid_init() != 0) {
+			hid_free_enumeration(devs);
+		LOG_ERROR("unable to open HIDAPI");
+			return ERROR_FAIL;
+	}
 
 		//dev = hid_open(target_vid, target_pid, target_serial);
 		dev = hid_open_path(cur_dev->path);
-		hid_free_enumeration(devs);
+	hid_free_enumeration(devs);
 
 		if (dev == NULL) {
 			LOG_ERROR("unable to open CMSIS-DAP device 0x%x:0x%x",
 				target_vid, target_pid);
 			return ERROR_FAIL;
 		}
-	}
+}
 
 	struct cmsis_dap *dap = malloc(sizeof(struct cmsis_dap));
 	if (dap == NULL) {
@@ -551,7 +557,7 @@ static int cmsis_dap_usb_open(void)
 	} else {
 		dap->bulk_handle = usb_device_handle;
 		dap->hid_handle = NULL;
-	}
+		}
 
 	dap->usb_ctx = usb_ctx;
 	dap->caps = 0;
@@ -619,8 +625,6 @@ int cmsis_dap_usb_write(struct cmsis_dap *dap, int txlen)
 	LOG_DEBUG("cmsis-dap usb xfer cmd=%02X", dap->packet_buffer[1]);
 #endif
 	/* Pad the rest of the TX buffer with 0's */
-	memset(dap->packet_buffer + txlen, 0, dap->packet_size - txlen);
-
 	if(dap->is_hid) {
 		/* write data to device */
 		int retval = hid_write(dap->hid_handle, dap->packet_buffer, dap->packet_size);
@@ -1038,9 +1042,6 @@ skip:
 
 static int cmsis_dap_swd_run_queue(void)
 {
-	if (pending_fifo_block_count)
-		cmsis_dap_swd_read_process(cmsis_dap_handle, 0);
-
 	cmsis_dap_swd_write_from_queue(cmsis_dap_handle);
 
 	while (pending_fifo_block_count)
@@ -1059,9 +1060,6 @@ static int cmsis_dap_swd_run_queue(void)
 static void cmsis_dap_swd_queue_cmd(uint8_t cmd, uint32_t *dst, uint32_t data)
 {
 	if (pending_fifo[pending_fifo_put_idx].transfer_count == pending_queue_len) {
-		if (pending_fifo_block_count)
-			cmsis_dap_swd_read_process(cmsis_dap_handle, 0);
-
 		/* Not enough room in the queue. Run the queue. */
 		cmsis_dap_swd_write_from_queue(cmsis_dap_handle);
 
@@ -1236,6 +1234,25 @@ static int cmsis_dap_swd_open(void)
 	return ERROR_OK;
 }
 
+static int cmsis_dap_clear_buffers(struct cmsis_dap *dap)
+{
+	int hr = ERROR_OK;
+	int read = 0;
+
+	if(dap->is_hid) {
+		read = hid_read_timeout(dap->hid_handle, dap->packet_buffer, dap->packet_size, 1);
+		if(read == 0)
+			hr = ERROR_FAIL;
+	} else {
+		hr = libusb_bulk_transfer(dap->bulk_handle, (2 | LIBUSB_ENDPOINT_IN),
+						dap->packet_buffer, dap->packet_size - 1, &read, 1);
+		if (hr != 0)
+			hr = ERROR_FAIL;
+	}
+
+	return hr;
+}
+
 static int cmsis_dap_init(void)
 {
 	int retval;
@@ -1244,6 +1261,8 @@ static int cmsis_dap_init(void)
 	retval = cmsis_dap_usb_open();
 	if (retval != ERROR_OK)
 		return retval;
+
+	while(!cmsis_dap_clear_buffers(cmsis_dap_handle));
 
 	retval = cmsis_dap_get_caps_info();
 	if (retval != ERROR_OK)
@@ -1423,7 +1442,7 @@ static void cmsis_dap_execute_sleep(struct jtag_command *cmd)
 /* Set TMS high for five TCK clocks, to move the TAP to the Test-Logic-Reset state */
 static int cmsis_dap_execute_tlr_reset(struct jtag_command *cmd)
 {
-	LOG_INFO("cmsis-dap JTAG TLR_RESET");
+	LOG_DEBUG("cmsis-dap JTAG TLR_RESET");
 	uint8_t seq = 0xff;
 	int ret = cmsis_dap_cmd_DAP_SWJ_Sequence(8, &seq);
 	if (ret == ERROR_OK)
@@ -2053,7 +2072,7 @@ const struct swd_driver cmsis_dap_swd_driver = {
 
 static const char * const cmsis_dap_transport[] = { "swd", "jtag", NULL };
 
-static struct jtag_interface cmsis_dap_interface = {
+struct jtag_interface cmsis_dap_interface = {
 	.supported = DEBUG_CAP_TMS_SEQ,
 	.execute_queue = cmsis_dap_execute_queue,
 };

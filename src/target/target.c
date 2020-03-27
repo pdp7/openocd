@@ -3051,7 +3051,7 @@ COMMAND_HANDLER(handle_reg_command)
 			for (i = 0, reg = cache->reg_list;
 					i < cache->num_regs;
 					i++, reg++, count++) {
-				if (reg->exist == false)
+				if (reg->exist == false || reg->hidden)
 					continue;
 				/* only print cached values if they are valid */
 				if (reg->valid) {
@@ -3963,26 +3963,31 @@ static COMMAND_HELPER(handle_verify_image_command_internal, enum verify_mode ver
 
 					data = malloc(subsect_buf_cnt);
 
-				/* Can we use 32bit word accesses? */
-				int count = buf_cnt;
+					/* Can we use 32bit word accesses? */
+					int size = 1;
+					int count = subsect_buf_cnt;
+					if ((count % 4) == 0) {
+						size *= 4;
+						count /= 4;
+					}
 
 					struct flash_bank *bank;
 					get_flash_bank_by_addr(target, subsect_base_addr, false, &bank);
 					if(bank && !bank->is_memory_mapped)
-						retval = flash_driver_read(bank, data, subsect_base_addr - bank->base, count);
+						retval = flash_driver_read(bank, data, subsect_base_addr - bank->base, count * size);
 					else
-				retval = target_read_memory(target, image.sections[i].base_address, size, count, data);
+						retval = target_read_memory(target, subsect_base_addr, size, count, data);
 
 					if (retval == ERROR_OK) {
 						uint32_t t;
 						for (t = 0; t < subsect_buf_cnt; t++) {
 							if (data[t] != subsect_buffer[t]) {
-							command_print(CMD,
+								command_print(CMD,
 											  "diff %d address 0x%08x. Was 0x%02x instead of 0x%02x",
 											  diffs, (unsigned)(t + subsect_base_addr),
 											  data[t], subsect_buffer[t]);
 								if (diffs++ >= 127) {
-								command_print(CMD, "More than 128 errors, the rest are not printed.");
+									command_print(CMD, "More than 128 errors, the rest are not printed.");
 									free(data);
 									free(buffer);
 									goto done;
@@ -3994,7 +3999,7 @@ static COMMAND_HELPER(handle_verify_image_command_internal, enum verify_mode ver
 					free(data);
 				}
 			} else {
-			command_print(CMD, "address " TARGET_ADDR_FMT " length 0x%08zx",
+				command_print(CMD, "address " TARGET_ADDR_FMT " length 0x%08zx",
 							  subsect_base_addr,
 							  buf_cnt);
 			}
@@ -6284,7 +6289,7 @@ COMMAND_HANDLER(handle_show_verify_ranges_command)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
 	for(size_t i = 0; i < num_verify_ranges; i++) {
-		command_print(CMD_CTX, "%s  0x%08X 0x%08X", verify_ranges[i].target_name,
+		command_print(CMD, "%s  0x%08X 0x%08X", verify_ranges[i].target_name,
 					  (uint32_t)verify_ranges[i].addr, (uint32_t)verify_ranges[i].size);
 	}
 	return ERROR_OK;

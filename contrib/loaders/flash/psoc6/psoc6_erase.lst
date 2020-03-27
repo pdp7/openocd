@@ -1,0 +1,136 @@
+   1              		.cpu cortex-m0plus
+   2              		.eabi_attribute 20, 1
+   3              		.eabi_attribute 21, 1
+   4              		.eabi_attribute 23, 3
+   5              		.eabi_attribute 24, 1
+   6              		.eabi_attribute 25, 1
+   7              		.eabi_attribute 26, 1
+   8              		.eabi_attribute 30, 4
+   9              		.eabi_attribute 34, 0
+  10              		.eabi_attribute 18, 4
+  11              		.file	"psoc6_erase.c"
+  12              		.text
+  13              		.align	1
+  14              		.global	write
+  15              		.arch armv6s-m
+  16              		.syntax unified
+  17              		.code	16
+  18              		.thumb_func
+  19              		.fpu softvfp
+  21              	write:
+  22              		@ Volatile: function does not return.
+  23              		@ args = 0, pretend = 0, frame = 16
+  24              		@ frame_needed = 0, uses_anonymous_args = 0
+  25 0000 F0B5     		push	{r4, r5, r6, r7, lr}
+  26 0002 85B0     		sub	sp, sp, #20
+  27              		.syntax divided
+  28              	@ 35 "psoc6_erase.c" 1
+  29 0004 62B6     		cpsie i
+  30              	@ 0 "" 2
+  31              		.thumb
+  32              		.syntax unified
+  33 0006 F027     		movs	r7, #240
+  34 0008 264C     		ldr	r4, .L16
+  35 000a 3F01     		lsls	r7, r7, #4
+  36 000c 2368     		ldr	r3, [r4]
+  37 000e 264E     		ldr	r6, .L16+4
+  38 0010 3B40     		ands	r3, r7
+  39 0012 5F1E     		subs	r7, r3, #1
+  40 0014 BB41     		sbcs	r3, r3, r7
+  41 0016 0127     		movs	r7, #1
+  42 0018 1033     		adds	r3, r3, #16
+  43 001a 9F40     		lsls	r7, r7, r3
+  44 001c 3568     		ldr	r5, [r6]
+  45 001e 0194     		str	r4, [sp, #4]
+  46 0020 2F42     		tst	r7, r5
+  47 0022 01D1     		bne	.L2
+  48 0024 3D43     		orrs	r5, r7
+  49 0026 3560     		str	r5, [r6]
+  50              	.L2:
+  51 0028 F026     		movs	r6, #240
+  52 002a A027     		movs	r7, #160
+  53 002c 0125     		movs	r5, #1
+  54 002e 3601     		lsls	r6, r6, #4
+  55 0030 3F06     		lsls	r7, r7, #24
+  56              	.L3:
+  57 0032 002A     		cmp	r2, #0
+  58 0034 01D1     		bne	.L4
+  59              	.L10:
+  60              		.syntax divided
+  61              	@ 65 "psoc6_erase.c" 1
+  62 0036 00BE     		bkpt 0
+  63              	@ 0 "" 2
+  64              		.thumb
+  65              		.syntax unified
+  66 0038 FDE7     		b	.L10
+  67              	.L4:
+  68 003a 4368     		ldr	r3, [r0, #4]
+  69 003c 9C46     		mov	ip, r3
+  70 003e 0368     		ldr	r3, [r0]
+  71 0040 9C45     		cmp	ip, r3
+  72 0042 FAD0     		beq	.L4
+  73 0044 4368     		ldr	r3, [r0, #4]
+  74 0046 194C     		ldr	r4, .L16+8
+  75 0048 1B68     		ldr	r3, [r3]
+  76 004a 9C46     		mov	ip, r3
+  77 004c 2B40     		ands	r3, r5
+  78 004e 5B42     		rsbs	r3, r3, #0
+  79 0050 DB06     		lsls	r3, r3, #27
+  80 0052 1B19     		adds	r3, r3, r4
+  81 0054 0293     		str	r3, [sp, #8]
+  82 0056 6346     		mov	r3, ip
+  83 0058 AB43     		bics	r3, r5
+  84 005a 0393     		str	r3, [sp, #12]
+  85 005c 019B     		ldr	r3, [sp, #4]
+  86 005e 1B68     		ldr	r3, [r3]
+  87 0060 3340     		ands	r3, r6
+  88 0062 5C1E     		subs	r4, r3, #1
+  89 0064 A341     		sbcs	r3, r3, r4
+  90 0066 124C     		ldr	r4, .L16+12
+  91 0068 1B19     		adds	r3, r3, r4
+  92 006a 5B01     		lsls	r3, r3, #5
+  93              	.L6:
+  94 006c 1C68     		ldr	r4, [r3]
+  95 006e 002C     		cmp	r4, #0
+  96 0070 FCDA     		bge	.L6
+  97 0072 02AC     		add	r4, sp, #8
+  98 0074 DC60     		str	r4, [r3, #12]
+  99 0076 9D60     		str	r5, [r3, #8]
+ 100              	.L7:
+ 101 0078 1C69     		ldr	r4, [r3, #16]
+ 102 007a 002C     		cmp	r4, #0
+ 103 007c FCDB     		blt	.L7
+ 104 007e 029B     		ldr	r3, [sp, #8]
+ 105 0080 9C46     		mov	ip, r3
+ 106 0082 1B0F     		lsrs	r3, r3, #28
+ 107 0084 1B07     		lsls	r3, r3, #28
+ 108 0086 BB42     		cmp	r3, r7
+ 109 0088 03D0     		beq	.L8
+ 110 008a 0023     		movs	r3, #0
+ 111 008c 4360     		str	r3, [r0, #4]
+ 112              		.syntax divided
+ 113              	@ 51 "psoc6_erase.c" 1
+ 114 008e 6046     		mov r0, ip
+ 115 0090 00BE     		bkpt 0
+ 116              	@ 0 "" 2
+ 117              		.thumb
+ 118              		.syntax unified
+ 119              	.L8:
+ 120 0092 4368     		ldr	r3, [r0, #4]
+ 121 0094 0433     		adds	r3, r3, #4
+ 122 0096 8B42     		cmp	r3, r1
+ 123 0098 01D3     		bcc	.L9
+ 124 009a 0300     		movs	r3, r0
+ 125 009c 0833     		adds	r3, r3, #8
+ 126              	.L9:
+ 127 009e 4360     		str	r3, [r0, #4]
+ 128 00a0 013A     		subs	r2, r2, #1
+ 129 00a2 C6E7     		b	.L3
+ 130              	.L17:
+ 131              		.align	2
+ 132              	.L16:
+ 133 00a4 00042140 		.word	1075905536
+ 134 00a8 08102340 		.word	1076039688
+ 135 00ac 0001001C 		.word	469762304
+ 136 00b0 00180102 		.word	33626112
+ 138              		.ident	"GCC: (bleeding-edge-toolchain) 9.2.0"
