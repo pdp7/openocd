@@ -56,6 +56,7 @@
 #include "arm_opcodes.h"
 #include "jtag/interface.h"
 #include "arm_semihosting.h"
+#include "jtag/interface.h"
 #include "transport/transport.h"
 #include "smp.h"
 #include <helper/time_support.h>
@@ -71,6 +72,8 @@ static int cortex_a_set_hybrid_breakpoint(struct target *target,
 	struct breakpoint *breakpoint);
 static int cortex_a_unset_breakpoint(struct target *target,
 	struct breakpoint *breakpoint);
+static int cortex_a_wait_dscr_bits(struct target *target, uint32_t mask,
+	uint32_t value, uint32_t *dscr);
 static int cortex_a_mmu(struct target *target, int *enabled);
 static int cortex_a_mmu_modify(struct target *target, int enable);
 static int cortex_a_virt2phys(struct target *target,
@@ -251,21 +254,21 @@ static int cortex_a_wait_instrcmpl(struct target *target, uint32_t *dscr, bool f
 	 * Writes final value of DSCR into *dscr. Pass force to force always
 	 * reading DSCR at least once. */
 	struct armv7a_common *armv7a = target_to_armv7a(target);
-	int64_t then = timeval_ms();
-	while ((*dscr & DSCR_INSTR_COMP) == 0 || force) {
-		force = false;
-		int retval = mem_ap_read_atomic_u32(armv7a->debug_ap,
+	int retval;
+
+	if (force) {
+		retval = mem_ap_read_atomic_u32(armv7a->debug_ap,
 				armv7a->debug_base + CPUDBG_DSCR, dscr);
 		if (retval != ERROR_OK) {
 			LOG_ERROR("Could not read DSCR register");
 			return retval;
 		}
-		if (timeval_ms() > then + 1000) {
-			LOG_ERROR("Timeout waiting for InstrCompl=1");
-			return ERROR_FAIL;
-		}
 	}
-	return ERROR_OK;
+
+	retval = cortex_a_wait_dscr_bits(target, DSCR_INSTR_COMP, DSCR_INSTR_COMP, dscr);
+	if (retval != ERROR_OK)
+		LOG_ERROR("Error waiting for InstrCompl=1");
+	return retval;
 }
 
 /* To reduce needless round-trips, pass in a pointer to the current
@@ -294,19 +297,12 @@ static int cortex_a_exec_opcode(struct target *target,
 	if (retval != ERROR_OK)
 		return retval;
 
-	int64_t then = timeval_ms();
-	do {
-		retval = mem_ap_read_atomic_u32(armv7a->debug_ap,
-				armv7a->debug_base + CPUDBG_DSCR, &dscr);
-		if (retval != ERROR_OK) {
-			LOG_ERROR("Could not read DSCR register");
-			return retval;
-		}
-		if (timeval_ms() > then + 1000) {
-			LOG_ERROR("Timeout waiting for cortex_a_exec_opcode");
-			return ERROR_FAIL;
-		}
-	} while ((dscr & DSCR_INSTR_COMP) == 0);	/* Wait for InstrCompl bit to be set */
+	/* Wait for InstrCompl bit to be set */
+	retval = cortex_a_wait_instrcmpl(target, &dscr, true);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("Error waiting for cortex_a_exec_opcode");
+		return retval;
+	}
 
 	if (dscr_p)
 		*dscr_p = dscr;
@@ -360,17 +356,11 @@ static int cortex_a_read_dcc(struct cortex_a_common *a, uint32_t *data,
 		dscr = *dscr_p;
 
 	/* Wait for DTRRXfull */
-	int64_t then = timeval_ms();
-	while ((dscr & DSCR_DTR_TX_FULL) == 0) {
-		retval = mem_ap_read_atomic_u32(a->armv7a_common.debug_ap,
-				a->armv7a_common.debug_base + CPUDBG_DSCR,
-				&dscr);
-		if (retval != ERROR_OK)
-			return retval;
-		if (timeval_ms() > then + 1000) {
-			LOG_ERROR("Timeout waiting for read dcc");
-			return ERROR_FAIL;
-		}
+	retval = cortex_a_wait_dscr_bits(a->armv7a_common.arm.target,
+			DSCR_DTR_TX_FULL, DSCR_DTR_TX_FULL, &dscr);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("Error waiting for read dcc");
+		return retval;
 	}
 
 	retval = mem_ap_read_atomic_u32(a->armv7a_common.debug_ap,
@@ -392,19 +382,10 @@ static int cortex_a_dpm_prepare(struct arm_dpm *dpm)
 	int retval;
 
 	/* set up invariant:  INSTR_COMP is set after ever DPM operation */
-	int64_t then = timeval_ms();
-	for (;; ) {
-		retval = mem_ap_read_atomic_u32(a->armv7a_common.debug_ap,
-				a->armv7a_common.debug_base + CPUDBG_DSCR,
-				&dscr);
-		if (retval != ERROR_OK)
-			return retval;
-		if ((dscr & DSCR_INSTR_COMP) != 0)
-			break;
-		if (timeval_ms() > then + 1000) {
-			LOG_ERROR("Timeout waiting for dpm prepare");
-			return ERROR_FAIL;
-		}
+	retval = cortex_a_wait_instrcmpl(dpm->arm->target, &dscr, true);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("Error waiting for dpm prepare");
+		return retval;
 	}
 
 	/* this "should never happen" ... */
@@ -445,6 +426,27 @@ static int cortex_a_instr_write_data_dcc(struct arm_dpm *dpm,
 			&dscr);
 }
 
+static int cortex_a_instr_write_data_rt_dcc(struct arm_dpm *dpm,
+	uint8_t rt, uint32_t data)
+{
+	struct cortex_a_common *a = dpm_to_a(dpm);
+	uint32_t dscr = DSCR_INSTR_COMP;
+	int retval;
+
+	if (rt > 15)
+		return ERROR_TARGET_INVALID;
+
+	retval = cortex_a_write_dcc(a, data);
+	if (retval != ERROR_OK)
+		return retval;
+
+	/* DCCRX to Rt, "MCR p14, 0, R0, c0, c5, 0", 0xEE000E15 */
+	return cortex_a_exec_opcode(
+			a->armv7a_common.arm.target,
+			ARMV4_5_MRC(14, 0, rt, 0, 5, 0),
+			&dscr);
+}
+
 static int cortex_a_instr_write_data_r0(struct arm_dpm *dpm,
 	uint32_t opcode, uint32_t data)
 {
@@ -452,15 +454,7 @@ static int cortex_a_instr_write_data_r0(struct arm_dpm *dpm,
 	uint32_t dscr = DSCR_INSTR_COMP;
 	int retval;
 
-	retval = cortex_a_write_dcc(a, data);
-	if (retval != ERROR_OK)
-		return retval;
-
-	/* DCCRX to R0, "MCR p14, 0, R0, c0, c5, 0", 0xEE000E15 */
-	retval = cortex_a_exec_opcode(
-			a->armv7a_common.arm.target,
-			ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
-			&dscr);
+	retval = cortex_a_instr_write_data_rt_dcc(dpm, 0, data);
 	if (retval != ERROR_OK)
 		return retval;
 
@@ -502,6 +496,25 @@ static int cortex_a_instr_read_data_dcc(struct arm_dpm *dpm,
 	return cortex_a_read_dcc(a, data, &dscr);
 }
 
+static int cortex_a_instr_read_data_rt_dcc(struct arm_dpm *dpm,
+	uint8_t rt, uint32_t *data)
+{
+	struct cortex_a_common *a = dpm_to_a(dpm);
+	uint32_t dscr = DSCR_INSTR_COMP;
+	int retval;
+
+	if (rt > 15)
+		return ERROR_TARGET_INVALID;
+
+	retval = cortex_a_exec_opcode(
+			a->armv7a_common.arm.target,
+			ARMV4_5_MCR(14, 0, rt, 0, 5, 0),
+			&dscr);
+	if (retval != ERROR_OK)
+		return retval;
+
+	return cortex_a_read_dcc(a, data, &dscr);
+}
 
 static int cortex_a_instr_read_data_r0(struct arm_dpm *dpm,
 	uint32_t opcode, uint32_t *data)
@@ -519,14 +532,7 @@ static int cortex_a_instr_read_data_r0(struct arm_dpm *dpm,
 		return retval;
 
 	/* write R0 to DCC */
-	retval = cortex_a_exec_opcode(
-			a->armv7a_common.arm.target,
-			ARMV4_5_MCR(14, 0, 0, 0, 5, 0),
-			&dscr);
-	if (retval != ERROR_OK)
-		return retval;
-
-	return cortex_a_read_dcc(a, data, &dscr);
+	return cortex_a_instr_read_data_rt_dcc(dpm, 0, data);
 }
 
 static int cortex_a_bpwp_enable(struct arm_dpm *dpm, unsigned index_t,
@@ -753,7 +759,7 @@ static int cortex_a_poll(struct target *target)
 
 static int cortex_a_halt(struct target *target)
 {
-	int retval = ERROR_OK;
+	int retval;
 	uint32_t dscr;
 	struct armv7a_common *armv7a = target_to_armv7a(target);
 
@@ -780,18 +786,12 @@ static int cortex_a_halt(struct target *target)
 	if (retval != ERROR_OK)
 		return retval;
 
-	int64_t then = timeval_ms();
-	for (;; ) {
-		retval = mem_ap_read_atomic_u32(armv7a->debug_ap,
-				armv7a->debug_base + CPUDBG_DSCR, &dscr);
-		if (retval != ERROR_OK)
-			return retval;
-		if ((dscr & DSCR_CORE_HALTED) != 0)
-			break;
-		if (timeval_ms() > then + 1000) {
-			LOG_ERROR("Timeout waiting for halt");
-			return ERROR_FAIL;
-		}
+	dscr = 0; /* force read of dscr */
+	retval = cortex_a_wait_dscr_bits(target, DSCR_CORE_HALTED,
+			DSCR_CORE_HALTED, &dscr);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("Error waiting for halt");
+		return retval;
 	}
 
 	target->debug_reason = DBG_REASON_DBGRQ;
@@ -930,18 +930,12 @@ static int cortex_a_internal_restart(struct target *target)
 	if (retval != ERROR_OK)
 		return retval;
 
-	int64_t then = timeval_ms();
-	for (;; ) {
-		retval = mem_ap_read_atomic_u32(armv7a->debug_ap,
-				armv7a->debug_base + CPUDBG_DSCR, &dscr);
-		if (retval != ERROR_OK)
-			return retval;
-		if ((dscr & DSCR_CORE_RESTARTED) != 0)
-			break;
-		if (timeval_ms() > then + 1000) {
-			LOG_ERROR("Timeout waiting for resume");
-			return ERROR_FAIL;
-		}
+	dscr = 0; /* force read of dscr */
+	retval = cortex_a_wait_dscr_bits(target, DSCR_CORE_RESTARTED,
+			DSCR_CORE_RESTARTED, &dscr);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("Error waiting for resume");
+		return retval;
 	}
 
 	target->debug_reason = DBG_REASON_NOTHALTED;
@@ -1221,6 +1215,8 @@ static int cortex_a_step(struct target *target, int current, target_addr_t addre
 		retval = cortex_a_poll(target);
 		if (retval != ERROR_OK)
 			return retval;
+		if (target->state == TARGET_HALTED)
+			break;
 		if (timeval_ms() > then + 1000) {
 			LOG_ERROR("timeout waiting for target halt");
 			return ERROR_FAIL;
@@ -1904,14 +1900,22 @@ static int cortex_a_wait_dscr_bits(struct target *target, uint32_t mask,
 {
 	/* Waits until the specified bit(s) of DSCR take on a specified value. */
 	struct armv7a_common *armv7a = target_to_armv7a(target);
-	int64_t then = timeval_ms();
+	int64_t then;
 	int retval;
 
-	while ((*dscr & mask) != value) {
+	if ((*dscr & mask) == value)
+		return ERROR_OK;
+
+	then = timeval_ms();
+	while (1) {
 		retval = mem_ap_read_atomic_u32(armv7a->debug_ap,
 				armv7a->debug_base + CPUDBG_DSCR, dscr);
-		if (retval != ERROR_OK)
+		if (retval != ERROR_OK) {
+			LOG_ERROR("Could not read DSCR register");
 			return retval;
+		}
+		if ((*dscr & mask) == value)
+			break;
 		if (timeval_ms() > then + 1000) {
 			LOG_ERROR("timeout waiting for DSCR bit change");
 			return ERROR_FAIL;
@@ -2055,7 +2059,8 @@ static int cortex_a_write_cpu_memory_slow(struct target *target,
 {
 	/* Writes count objects of size size from *buffer. Old value of DSCR must
 	 * be in *dscr; updated to new value. This is slow because it works for
-	 * non-word-sized objects and (maybe) unaligned accesses. If size == 4 and
+	 * non-word-sized objects. Avoid unaligned accesses as they do not work
+	 * on memory address space without "Normal" attribute. If size == 4 and
 	 * the address is aligned, cortex_a_write_cpu_memory_fast should be
 	 * preferred.
 	 * Preconditions:
@@ -2212,7 +2217,22 @@ static int cortex_a_write_cpu_memory(struct target *target,
 		/* We are doing a word-aligned transfer, so use fast mode. */
 		retval = cortex_a_write_cpu_memory_fast(target, count, buffer, &dscr);
 	} else {
-		/* Use slow path. */
+		/* Use slow path. Adjust size for aligned accesses */
+		switch (address % 4) {
+			case 1:
+			case 3:
+				count *= size;
+				size = 1;
+				break;
+			case 2:
+				if (size == 4) {
+					count *= 2;
+					size = 2;
+				}
+			case 0:
+			default:
+				break;
+		}
 		retval = cortex_a_write_cpu_memory_slow(target, size, count, buffer, &dscr);
 	}
 
@@ -2298,7 +2318,8 @@ static int cortex_a_read_cpu_memory_slow(struct target *target,
 {
 	/* Reads count objects of size size into *buffer. Old value of DSCR must be
 	 * in *dscr; updated to new value. This is slow because it works for
-	 * non-word-sized objects and (maybe) unaligned accesses. If size == 4 and
+	 * non-word-sized objects. Avoid unaligned accesses as they do not work
+	 * on memory address space without "Normal" attribute. If size == 4 and
 	 * the address is aligned, cortex_a_read_cpu_memory_fast should be
 	 * preferred.
 	 * Preconditions:
@@ -2514,7 +2535,23 @@ static int cortex_a_read_cpu_memory(struct target *target,
 		/* We are doing a word-aligned transfer, so use fast mode. */
 		retval = cortex_a_read_cpu_memory_fast(target, count, buffer, &dscr);
 	} else {
-		/* Use slow path. */
+		/* Use slow path. Adjust size for aligned accesses */
+		switch (address % 4) {
+			case 1:
+			case 3:
+				count *= size;
+				size = 1;
+				break;
+			case 2:
+				if (size == 4) {
+					count *= 2;
+					size = 2;
+				}
+				break;
+			case 0:
+			default:
+				break;
+		}
 		retval = cortex_a_read_cpu_memory_slow(target, size, count, buffer, &dscr);
 	}
 
@@ -3085,7 +3122,7 @@ static int cortex_a_virt2phys(struct target *target,
 	if (retval != ERROR_OK)
 		return retval;
 	return armv7a_mmu_translate_va_pa(target, (uint32_t)virt,
-						    (uint32_t *)phys, 1);
+						    phys, 1);
 }
 
 COMMAND_HANDLER(cortex_a_handle_cache_info_command)
@@ -3093,7 +3130,7 @@ COMMAND_HANDLER(cortex_a_handle_cache_info_command)
 	struct target *target = get_current_target(CMD_CTX);
 	struct armv7a_common *armv7a = target_to_armv7a(target);
 
-	return armv7a_handle_cache_info_command(CMD_CTX,
+	return armv7a_handle_cache_info_command(CMD,
 			&armv7a->armv7a_mmu.armv7a_cache);
 }
 
@@ -3132,7 +3169,7 @@ COMMAND_HANDLER(handle_cortex_a_mask_interrupts_command)
 	}
 
 	n = Jim_Nvp_value2name_simple(nvp_maskisr_modes, cortex_a->isrmasking_mode);
-	command_print(CMD_CTX, "cortex_a interrupt mask %s", n->name);
+	command_print(CMD, "cortex_a interrupt mask %s", n->name);
 
 	return ERROR_OK;
 }
@@ -3158,7 +3195,7 @@ COMMAND_HANDLER(handle_cortex_a_dacrfixup_command)
 	}
 
 	n = Jim_Nvp_value2name_simple(nvp_dacrfixup_modes, cortex_a->dacrfixup_mode);
-	command_print(CMD_CTX, "cortex_a domain access control fixup %s", n->name);
+	command_print(CMD, "cortex_a domain access control fixup %s", n->name);
 
 	return ERROR_OK;
 }

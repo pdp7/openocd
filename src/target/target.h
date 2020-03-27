@@ -36,6 +36,7 @@
 struct reg;
 struct trace;
 struct command_context;
+struct command_invocation;
 struct breakpoint;
 struct watchpoint;
 struct mem_param;
@@ -504,6 +505,16 @@ int target_get_gdb_reg_list(struct target *target,
 		enum target_register_class reg_class);
 
 /**
+ * Obtain the registers for GDB, but don't read register values from the
+ * target.
+ *
+ * This routine is a wrapper for target->type->get_gdb_reg_list_noread.
+ */
+int target_get_gdb_reg_list_noread(struct target *target,
+		struct reg **reg_list[], int *reg_list_size,
+		enum target_register_class reg_class);
+
+/**
  * Check if @a target allows GDB connections.
  *
  * Some target do not implement the necessary code required by GDB.
@@ -742,6 +753,10 @@ int target_write_phys_u8(struct target *target, target_addr_t address, uint8_t v
 int target_arch_state(struct target *target);
 
 void target_handle_event(struct target *t, enum target_event e);
+
+void target_handle_md_output(struct command_invocation *cmd,
+	struct target *target, target_addr_t address, unsigned size,
+	unsigned count, const uint8_t *buffer);
 
 #define ERROR_TARGET_INVALID	(-300)
 #define ERROR_TARGET_INIT_FAILED (-301)

@@ -116,7 +116,7 @@ struct stm32x_options {
 struct stm32x_flash_bank {
 	struct stm32x_options option_bytes;
 	int ppage_size;
-	int probed;
+	bool probed;
 
 	bool has_dual_banks;
 	/* used to access dual flash bank stm32xl */
@@ -145,7 +145,7 @@ FLASH_BANK_COMMAND_HANDLER(stm32x_flash_bank_command)
 	stm32x_info = malloc(sizeof(struct stm32x_flash_bank));
 
 	bank->driver_priv = stm32x_info;
-	stm32x_info->probed = 0;
+	stm32x_info->probed = false;
 	stm32x_info->has_dual_banks = false;
 	stm32x_info->can_load_options = false;
 	stm32x_info->register_base = FLASH_REG_BASE_B0;
@@ -229,33 +229,19 @@ static int stm32x_read_options(struct flash_bank *bank)
 	uint32_t option_bytes;
 	int retval;
 
-	/* read user and read protection option bytes */
-	retval = target_read_u32(target, STM32_OB_RDP, &option_bytes);
+	/* read user and read protection option bytes, user data option bytes */
+	retval = target_read_u32(target, STM32_FLASH_OBR_B0, &option_bytes);
 	if (retval != ERROR_OK)
 		return retval;
 
-	stm32x_info->option_bytes.rdp = option_bytes & 0xFF;
-	stm32x_info->option_bytes.user = (option_bytes >> 16) & 0xFF;
-
-	/* read user data option bytes */
-	retval = target_read_u32(target, STM32_OB_DATA0, &option_bytes);
-	if (retval != ERROR_OK)
-		return retval;
-
-	stm32x_info->option_bytes.data = ((option_bytes >> 8) & 0xFF00) | (option_bytes & 0xFF);
+	stm32x_info->option_bytes.rdp = (option_bytes & (1 << OPT_READOUT)) ? 0 : stm32x_info->default_rdp;
+	stm32x_info->option_bytes.user = (option_bytes >> stm32x_info->option_offset >> 2) & 0xff;
+	stm32x_info->option_bytes.data = (option_bytes >> stm32x_info->user_data_offset) & 0xffff;
 
 	/* read write protection option bytes */
-	retval = target_read_u32(target, STM32_OB_WRP0, &option_bytes);
+	retval = target_read_u32(target, STM32_FLASH_WRPR_B0, &stm32x_info->option_bytes.protection);
 	if (retval != ERROR_OK)
 		return retval;
-
-	stm32x_info->option_bytes.protection = ((option_bytes >> 8) & 0xFF00) | (option_bytes & 0xFF);
-
-	retval = target_read_u32(target, STM32_OB_WRP2, &option_bytes);
-	if (retval != ERROR_OK)
-		return retval;
-
-	stm32x_info->option_bytes.protection |= (((option_bytes >> 8) & 0xFF00) | (option_bytes & 0xFF)) << 16;
 
 	return ERROR_OK;
 }
@@ -382,7 +368,6 @@ static int stm32x_protect_check(struct flash_bank *bank)
 static int stm32x_erase(struct flash_bank *bank, int first, int last)
 {
 	struct target *target = bank->target;
-	int i;
 
 	if (bank->target->state != TARGET_HALTED) {
 		LOG_ERROR("Target not halted");
@@ -400,7 +385,7 @@ static int stm32x_erase(struct flash_bank *bank, int first, int last)
 	if (retval != ERROR_OK)
 		return retval;
 
-	for (i = first; i <= last; i++) {
+	for (int i = first; i <= last; i++) {
 		retval = target_write_u32(target, stm32x_get_flash_reg(bank, STM32_FLASH_CR), FLASH_PER);
 		if (retval != ERROR_OK)
 			return retval;
@@ -711,7 +696,7 @@ static int stm32x_probe(struct flash_bank *bank)
 	int page_size;
 	uint32_t base_address = 0x08000000;
 
-	stm32x_info->probed = 0;
+	stm32x_info->probed = false;
 	stm32x_info->register_base = FLASH_REG_BASE_B0;
 	stm32x_info->user_data_offset = 10;
 	stm32x_info->option_offset = 0;
@@ -900,7 +885,7 @@ static int stm32x_probe(struct flash_bank *bank)
 	if (num_prot_blocks == 32)
 		bank->prot_blocks[31].size = (num_pages - (31 * stm32x_info->ppage_size)) * page_size;
 
-	stm32x_info->probed = 1;
+	stm32x_info->probed = true;
 
 	return ERROR_OK;
 }
@@ -1186,7 +1171,7 @@ COMMAND_HANDLER(stm32x_handle_lock_command)
 		return retval;
 
 	if (stm32x_erase_options(bank) != ERROR_OK) {
-		command_print(CMD_CTX, "stm32x failed to erase options");
+		command_print(CMD, "stm32x failed to erase options");
 		return ERROR_OK;
 	}
 
@@ -1194,11 +1179,11 @@ COMMAND_HANDLER(stm32x_handle_lock_command)
 	stm32x_info->option_bytes.rdp = 0;
 
 	if (stm32x_write_options(bank) != ERROR_OK) {
-		command_print(CMD_CTX, "stm32x failed to lock device");
+		command_print(CMD, "stm32x failed to lock device");
 		return ERROR_OK;
 	}
 
-	command_print(CMD_CTX, "stm32x locked");
+	command_print(CMD, "stm32x locked");
 
 	return ERROR_OK;
 }
@@ -1227,16 +1212,16 @@ COMMAND_HANDLER(stm32x_handle_unlock_command)
 		return retval;
 
 	if (stm32x_erase_options(bank) != ERROR_OK) {
-		command_print(CMD_CTX, "stm32x failed to erase options");
+		command_print(CMD, "stm32x failed to erase options");
 		return ERROR_OK;
 	}
 
 	if (stm32x_write_options(bank) != ERROR_OK) {
-		command_print(CMD_CTX, "stm32x failed to unlock device");
+		command_print(CMD, "stm32x failed to unlock device");
 		return ERROR_OK;
 	}
 
-	command_print(CMD_CTX, "stm32x unlocked.\n"
+	command_print(CMD, "stm32x unlocked.\n"
 			"INFO: a reset or power cycle is required "
 			"for the new settings to take effect.");
 
@@ -1281,30 +1266,30 @@ COMMAND_HANDLER(stm32x_handle_options_read_command)
 		return retval;
 
 	if (optionbyte & (1 << OPT_ERROR))
-		command_print(CMD_CTX, "option byte complement error");
+		command_print(CMD, "option byte complement error");
 
-	command_print(CMD_CTX, "option byte register = 0x%" PRIx32 "", optionbyte);
-	command_print(CMD_CTX, "write protection register = 0x%" PRIx32 "", protection);
+	command_print(CMD, "option byte register = 0x%" PRIx32 "", optionbyte);
+	command_print(CMD, "write protection register = 0x%" PRIx32 "", protection);
 
-	command_print(CMD_CTX, "read protection: %s",
+	command_print(CMD, "read protection: %s",
 				(optionbyte & (1 << OPT_READOUT)) ? "on" : "off");
 
 	/* user option bytes are offset depending on variant */
 	optionbyte >>= stm32x_info->option_offset;
 
-	command_print(CMD_CTX, "watchdog: %sware",
+	command_print(CMD, "watchdog: %sware",
 				(optionbyte & (1 << OPT_RDWDGSW)) ? "soft" : "hard");
 
-	command_print(CMD_CTX, "stop mode: %sreset generated upon entry",
+	command_print(CMD, "stop mode: %sreset generated upon entry",
 				(optionbyte & (1 << OPT_RDRSTSTOP)) ? "no " : "");
 
-	command_print(CMD_CTX, "standby mode: %sreset generated upon entry",
+	command_print(CMD, "standby mode: %sreset generated upon entry",
 				(optionbyte & (1 << OPT_RDRSTSTDBY)) ? "no " : "");
 
 	if (stm32x_info->has_dual_banks)
-		command_print(CMD_CTX, "boot: bank %d", (optionbyte & (1 << OPT_BFB2)) ? 0 : 1);
+		command_print(CMD, "boot: bank %d", (optionbyte & (1 << OPT_BFB2)) ? 0 : 1);
 
-	command_print(CMD_CTX, "user data = 0x%02" PRIx16 "", user_data);
+	command_print(CMD, "user data = 0x%02" PRIx16 "", user_data);
 
 	return ERROR_OK;
 }
@@ -1383,7 +1368,7 @@ COMMAND_HANDLER(stm32x_handle_options_write_command)
 	}
 
 	if (stm32x_erase_options(bank) != ERROR_OK) {
-		command_print(CMD_CTX, "stm32x failed to erase options");
+		command_print(CMD, "stm32x failed to erase options");
 		return ERROR_OK;
 	}
 
@@ -1391,11 +1376,11 @@ COMMAND_HANDLER(stm32x_handle_options_write_command)
 	stm32x_info->option_bytes.data = useropt;
 
 	if (stm32x_write_options(bank) != ERROR_OK) {
-		command_print(CMD_CTX, "stm32x failed to write options");
+		command_print(CMD, "stm32x failed to write options");
 		return ERROR_OK;
 	}
 
-	command_print(CMD_CTX, "stm32x write options complete.\n"
+	command_print(CMD, "stm32x write options complete.\n"
 				"INFO: %spower cycle is required "
 				"for the new settings to take effect.",
 				stm32x_info->can_load_options
@@ -1488,8 +1473,6 @@ static int stm32x_mass_erase(struct flash_bank *bank)
 
 COMMAND_HANDLER(stm32x_handle_mass_erase_command)
 {
-	int i;
-
 	if (CMD_ARGC < 1)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
@@ -1501,12 +1484,12 @@ COMMAND_HANDLER(stm32x_handle_mass_erase_command)
 	retval = stm32x_mass_erase(bank);
 	if (retval == ERROR_OK) {
 		/* set all sectors as erased */
-		for (i = 0; i < bank->num_sectors; i++)
+		for (int i = 0; i < bank->num_sectors; i++)
 			bank->sectors[i].is_erased = 1;
 
-		command_print(CMD_CTX, "stm32x mass erase complete");
+		command_print(CMD, "stm32x mass erase complete");
 	} else
-		command_print(CMD_CTX, "stm32x mass erase failed");
+		command_print(CMD, "stm32x mass erase failed");
 
 	return retval;
 }

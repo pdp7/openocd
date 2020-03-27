@@ -84,7 +84,6 @@ static inline bool gpio_level(int g)
 
 static bb_value_t imx_gpio_read(void);
 static int imx_gpio_write(int tck, int tms, int tdi);
-static int imx_gpio_reset(int trst, int srst);
 
 static int imx_gpio_swdio_read(void);
 static void imx_gpio_swdio_drive(bool is_output);
@@ -95,7 +94,6 @@ static int imx_gpio_quit(void);
 static struct bitbang_interface imx_gpio_bitbang = {
 	.read = imx_gpio_read,
 	.write = imx_gpio_write,
-	.reset = imx_gpio_reset,
 	.swdio_read = imx_gpio_swdio_read,
 	.swdio_drive = imx_gpio_swdio_drive,
 	.blink = NULL
@@ -221,7 +219,7 @@ COMMAND_HANDLER(imx_gpio_handle_jtag_gpionums)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
-	command_print(CMD_CTX,
+	command_print(CMD,
 			"imx_gpio GPIO config: tck = %d, tms = %d, tdi = %d, tdo = %d",
 			tck_gpio, tms_gpio, tdi_gpio, tdo_gpio);
 
@@ -233,7 +231,7 @@ COMMAND_HANDLER(imx_gpio_handle_jtag_gpionum_tck)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], tck_gpio);
 
-	command_print(CMD_CTX, "imx_gpio GPIO config: tck = %d", tck_gpio);
+	command_print(CMD, "imx_gpio GPIO config: tck = %d", tck_gpio);
 	return ERROR_OK;
 }
 
@@ -242,7 +240,7 @@ COMMAND_HANDLER(imx_gpio_handle_jtag_gpionum_tms)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], tms_gpio);
 
-	command_print(CMD_CTX, "imx_gpio GPIO config: tms = %d", tms_gpio);
+	command_print(CMD, "imx_gpio GPIO config: tms = %d", tms_gpio);
 	return ERROR_OK;
 }
 
@@ -251,7 +249,7 @@ COMMAND_HANDLER(imx_gpio_handle_jtag_gpionum_tdo)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], tdo_gpio);
 
-	command_print(CMD_CTX, "imx_gpio GPIO config: tdo = %d", tdo_gpio);
+	command_print(CMD, "imx_gpio GPIO config: tdo = %d", tdo_gpio);
 	return ERROR_OK;
 }
 
@@ -260,7 +258,7 @@ COMMAND_HANDLER(imx_gpio_handle_jtag_gpionum_tdi)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], tdi_gpio);
 
-	command_print(CMD_CTX, "imx_gpio GPIO config: tdi = %d", tdi_gpio);
+	command_print(CMD, "imx_gpio GPIO config: tdi = %d", tdi_gpio);
 	return ERROR_OK;
 }
 
@@ -269,7 +267,7 @@ COMMAND_HANDLER(imx_gpio_handle_jtag_gpionum_srst)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], srst_gpio);
 
-	command_print(CMD_CTX, "imx_gpio GPIO config: srst = %d", srst_gpio);
+	command_print(CMD, "imx_gpio GPIO config: srst = %d", srst_gpio);
 	return ERROR_OK;
 }
 
@@ -278,7 +276,7 @@ COMMAND_HANDLER(imx_gpio_handle_jtag_gpionum_trst)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], trst_gpio);
 
-	command_print(CMD_CTX, "imx_gpio GPIO config: trst = %d", trst_gpio);
+	command_print(CMD, "imx_gpio GPIO config: trst = %d", trst_gpio);
 	return ERROR_OK;
 }
 
@@ -291,7 +289,7 @@ COMMAND_HANDLER(imx_gpio_handle_swd_gpionums)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
-	command_print(CMD_CTX,
+	command_print(CMD,
 			"imx_gpio GPIO nums: swclk = %d, swdio = %d",
 			swclk_gpio, swdio_gpio);
 
@@ -303,7 +301,7 @@ COMMAND_HANDLER(imx_gpio_handle_swd_gpionum_swclk)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], swclk_gpio);
 
-	command_print(CMD_CTX, "imx_gpio num: swclk = %d", swclk_gpio);
+	command_print(CMD, "imx_gpio num: swclk = %d", swclk_gpio);
 	return ERROR_OK;
 }
 
@@ -312,7 +310,7 @@ COMMAND_HANDLER(imx_gpio_handle_swd_gpionum_swdio)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], swdio_gpio);
 
-	command_print(CMD_CTX, "imx_gpio num: swdio = %d", swdio_gpio);
+	command_print(CMD, "imx_gpio num: swdio = %d", swdio_gpio);
 	return ERROR_OK;
 }
 
@@ -323,7 +321,7 @@ COMMAND_HANDLER(imx_gpio_handle_speed_coeffs)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[1], speed_offset);
 	}
 
-	command_print(CMD_CTX, "imx_gpio: speed_coeffs = %d, speed_offset = %d",
+	command_print(CMD, "imx_gpio: speed_coeffs = %d, speed_offset = %d",
 				  speed_coeff, speed_offset);
 	return ERROR_OK;
 }
@@ -333,7 +331,7 @@ COMMAND_HANDLER(imx_gpio_handle_peripheral_base)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], imx_gpio_peri_base);
 
-	command_print(CMD_CTX, "imx_gpio: peripheral_base = 0x%08x",
+	command_print(CMD, "imx_gpio: peripheral_base = 0x%08x",
 				  imx_gpio_peri_base);
 	return ERROR_OK;
 }
@@ -429,18 +427,25 @@ static const struct command_registration imx_gpio_command_handlers[] = {
 
 static const char * const imx_gpio_transports[] = { "jtag", "swd", NULL };
 
-struct jtag_interface imx_gpio_interface = {
-	.name = "imx_gpio",
+static struct jtag_interface imx_gpio_interface = {
 	.supported = DEBUG_CAP_TMS_SEQ,
 	.execute_queue = bitbang_execute_queue,
+};
+
+struct adapter_driver imx_gpio_adapter_driver = {
+	.name = "imx_gpio",
 	.transports = imx_gpio_transports,
-	.swd = &bitbang_swd,
+	.commands = imx_gpio_command_handlers,
+
+	.init = imx_gpio_init,
+	.quit = imx_gpio_quit,
+	.reset = imx_gpio_reset,
 	.speed = imx_gpio_speed,
 	.khz = imx_gpio_khz,
 	.speed_div = imx_gpio_speed_div,
-	.commands = imx_gpio_command_handlers,
-	.init = imx_gpio_init,
-	.quit = imx_gpio_quit,
+
+	.jtag_ops = &imx_gpio_interface,
+	.swd_ops = &bitbang_swd,
 };
 
 static bool imx_gpio_jtag_mode_possible(void)

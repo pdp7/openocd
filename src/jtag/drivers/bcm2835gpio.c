@@ -51,7 +51,6 @@ static volatile uint32_t *pio_base;
 
 static bb_value_t bcm2835gpio_read(void);
 static int bcm2835gpio_write(int tck, int tms, int tdi);
-static int bcm2835gpio_reset(int trst, int srst);
 
 static int bcm2835_swdio_read(void);
 static void bcm2835_swdio_drive(bool is_output);
@@ -62,7 +61,6 @@ static int bcm2835gpio_quit(void);
 static struct bitbang_interface bcm2835gpio_bitbang = {
 	.read = bcm2835gpio_read,
 	.write = bcm2835gpio_write,
-	.reset = bcm2835gpio_reset,
 	.swdio_read = bcm2835_swdio_read,
 	.swdio_drive = bcm2835_swdio_drive,
 	.blink = NULL
@@ -199,7 +197,7 @@ COMMAND_HANDLER(bcm2835gpio_handle_jtag_gpionums)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
-	command_print(CMD_CTX,
+	command_print(CMD,
 			"BCM2835 GPIO config: tck = %d, tms = %d, tdi = %d, tdo = %d",
 			tck_gpio, tms_gpio, tdi_gpio, tdo_gpio);
 
@@ -211,7 +209,7 @@ COMMAND_HANDLER(bcm2835gpio_handle_jtag_gpionum_tck)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], tck_gpio);
 
-	command_print(CMD_CTX, "BCM2835 GPIO config: tck = %d", tck_gpio);
+	command_print(CMD, "BCM2835 GPIO config: tck = %d", tck_gpio);
 	return ERROR_OK;
 }
 
@@ -220,7 +218,7 @@ COMMAND_HANDLER(bcm2835gpio_handle_jtag_gpionum_tms)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], tms_gpio);
 
-	command_print(CMD_CTX, "BCM2835 GPIO config: tms = %d", tms_gpio);
+	command_print(CMD, "BCM2835 GPIO config: tms = %d", tms_gpio);
 	return ERROR_OK;
 }
 
@@ -229,7 +227,7 @@ COMMAND_HANDLER(bcm2835gpio_handle_jtag_gpionum_tdo)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], tdo_gpio);
 
-	command_print(CMD_CTX, "BCM2835 GPIO config: tdo = %d", tdo_gpio);
+	command_print(CMD, "BCM2835 GPIO config: tdo = %d", tdo_gpio);
 	return ERROR_OK;
 }
 
@@ -238,7 +236,7 @@ COMMAND_HANDLER(bcm2835gpio_handle_jtag_gpionum_tdi)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], tdi_gpio);
 
-	command_print(CMD_CTX, "BCM2835 GPIO config: tdi = %d", tdi_gpio);
+	command_print(CMD, "BCM2835 GPIO config: tdi = %d", tdi_gpio);
 	return ERROR_OK;
 }
 
@@ -247,7 +245,7 @@ COMMAND_HANDLER(bcm2835gpio_handle_jtag_gpionum_srst)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], srst_gpio);
 
-	command_print(CMD_CTX, "BCM2835 GPIO config: srst = %d", srst_gpio);
+	command_print(CMD, "BCM2835 GPIO config: srst = %d", srst_gpio);
 	return ERROR_OK;
 }
 
@@ -256,7 +254,7 @@ COMMAND_HANDLER(bcm2835gpio_handle_jtag_gpionum_trst)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], trst_gpio);
 
-	command_print(CMD_CTX, "BCM2835 GPIO config: trst = %d", trst_gpio);
+	command_print(CMD, "BCM2835 GPIO config: trst = %d", trst_gpio);
 	return ERROR_OK;
 }
 
@@ -269,7 +267,7 @@ COMMAND_HANDLER(bcm2835gpio_handle_swd_gpionums)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
-	command_print(CMD_CTX,
+	command_print(CMD,
 			"BCM2835 GPIO nums: swclk = %d, swdio = %d",
 			swclk_gpio, swdio_gpio);
 
@@ -281,7 +279,7 @@ COMMAND_HANDLER(bcm2835gpio_handle_swd_gpionum_swclk)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], swclk_gpio);
 
-	command_print(CMD_CTX, "BCM2835 num: swclk = %d", swclk_gpio);
+	command_print(CMD, "BCM2835 num: swclk = %d", swclk_gpio);
 	return ERROR_OK;
 }
 
@@ -290,7 +288,7 @@ COMMAND_HANDLER(bcm2835gpio_handle_swd_gpionum_swdio)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], swdio_gpio);
 
-	command_print(CMD_CTX, "BCM2835 num: swdio = %d", swdio_gpio);
+	command_print(CMD, "BCM2835 num: swdio = %d", swdio_gpio);
 	return ERROR_OK;
 }
 
@@ -301,7 +299,7 @@ COMMAND_HANDLER(bcm2835gpio_handle_speed_coeffs)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[1], speed_offset);
 	}
 
-	command_print(CMD_CTX, "BCM2835 GPIO: speed_coeffs = %d, speed_offset = %d",
+	command_print(CMD, "BCM2835 GPIO: speed_coeffs = %d, speed_offset = %d",
 				  speed_coeff, speed_offset);
 	return ERROR_OK;
 }
@@ -311,7 +309,7 @@ COMMAND_HANDLER(bcm2835gpio_handle_peripheral_base)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], bcm2835_peri_base);
 
-	command_print(CMD_CTX, "BCM2835 GPIO: peripheral_base = 0x%08x",
+	command_print(CMD, "BCM2835 GPIO: peripheral_base = 0x%08x",
 				  bcm2835_peri_base);
 	return ERROR_OK;
 }
@@ -407,18 +405,25 @@ static const struct command_registration bcm2835gpio_command_handlers[] = {
 
 static const char * const bcm2835_transports[] = { "jtag", "swd", NULL };
 
-struct jtag_interface bcm2835gpio_interface = {
-	.name = "bcm2835gpio",
+static struct jtag_interface bcm2835gpio_interface = {
 	.supported = DEBUG_CAP_TMS_SEQ,
 	.execute_queue = bitbang_execute_queue,
+};
+
+struct adapter_driver bcm2835gpio_adapter_driver = {
+	.name = "bcm2835gpio",
 	.transports = bcm2835_transports,
-	.swd = &bitbang_swd,
+	.commands = bcm2835gpio_command_handlers,
+
+	.init = bcm2835gpio_init,
+	.quit = bcm2835gpio_quit,
+	.reset = bcm2835gpio_reset,
 	.speed = bcm2835gpio_speed,
 	.khz = bcm2835gpio_khz,
 	.speed_div = bcm2835gpio_speed_div,
-	.commands = bcm2835gpio_command_handlers,
-	.init = bcm2835gpio_init,
-	.quit = bcm2835gpio_quit,
+
+	.jtag_ops = &bcm2835gpio_interface,
+	.swd_ops = &bitbang_swd,
 };
 
 static bool bcm2835gpio_jtag_mode_possible(void)

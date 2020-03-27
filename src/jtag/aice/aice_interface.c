@@ -25,7 +25,6 @@
 #include <transport/transport.h>
 #include <target/target.h>
 #include <jtag/aice/aice_transport.h>
-#include <jtag/drivers/libusb_common.h>
 #include "aice_usb.h"
 
 #define AICE_KHZ_TO_SPEED_MAP_SIZE	16
@@ -150,7 +149,7 @@ static int aice_execute_reset(struct jtag_command *cmd)
 	static int last_trst;
 	int retval = ERROR_OK;
 
-	DEBUG_JTAG_IO("reset trst: %d", cmd->cmd.reset->trst);
+	LOG_DEBUG_IO("reset trst: %d", cmd->cmd.reset->trst);
 
 	if (cmd->cmd.reset->trst != last_trst) {
 		if (cmd->cmd.reset->trst)
@@ -269,10 +268,10 @@ COMMAND_HANDLER(aice_handle_aice_info_command)
 {
 	LOG_DEBUG("aice_handle_aice_info_command");
 
-	command_print(CMD_CTX, "Description: %s", param.device_desc);
-	command_print(CMD_CTX, "Serial number: %s", param.serial);
+	command_print(CMD, "Description: %s", param.device_desc);
+	command_print(CMD, "Serial number: %s", param.serial);
 	if (strncmp(aice_port->name, "aice_pipe", 9) == 0)
-		command_print(CMD_CTX, "Adapter: %s", param.adapter_name);
+		command_print(CMD, "Adapter: %s", param.adapter_name);
 
 	return ERROR_OK;
 }
@@ -518,14 +517,20 @@ static const struct command_registration aice_command_handlers[] = {
 /***************************************************************************/
 /* End of Command handlers */
 
-struct jtag_interface aice_interface = {
+static struct jtag_interface aice_interface = {
+	.execute_queue = aice_execute_queue,
+};
+
+struct adapter_driver aice_adapter_driver = {
 	.name = "aice",
-	.commands = aice_command_handlers,
 	.transports = aice_transports,
+	.commands = aice_command_handlers,
+
 	.init = aice_init,
 	.quit = aice_quit,
-	.execute_queue = aice_execute_queue,
 	.speed = aice_speed,		/* set interface speed */
-	.speed_div = aice_speed_div,	/* return readable value */
 	.khz = aice_khz,		/* convert khz to interface speed value */
+	.speed_div = aice_speed_div,	/* return readable value */
+
+	.jtag_ops = &aice_interface,
 };

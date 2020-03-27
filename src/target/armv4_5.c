@@ -274,24 +274,24 @@ static const struct {
 	 * correspond to r0..r7, and the fifteenth to PC, so that callers
 	 * don't need to map them.
 	 */
-	{ .name = "r0", .cookie = 0, .mode = ARM_MODE_ANY, .gdb_index = 0, },
-	{ .name = "r1", .cookie = 1, .mode = ARM_MODE_ANY, .gdb_index = 1, },
-	{ .name = "r2", .cookie = 2, .mode = ARM_MODE_ANY, .gdb_index = 2, },
-	{ .name = "r3", .cookie = 3, .mode = ARM_MODE_ANY, .gdb_index = 3, },
-	{ .name = "r4", .cookie = 4, .mode = ARM_MODE_ANY, .gdb_index = 4, },
-	{ .name = "r5", .cookie = 5, .mode = ARM_MODE_ANY, .gdb_index = 5, },
-	{ .name = "r6", .cookie = 6, .mode = ARM_MODE_ANY, .gdb_index = 6, },
-	{ .name = "r7", .cookie = 7, .mode = ARM_MODE_ANY, .gdb_index = 7, },
+	[0] = { .name = "r0", .cookie = 0, .mode = ARM_MODE_ANY, .gdb_index = 0, },
+	[1] = { .name = "r1", .cookie = 1, .mode = ARM_MODE_ANY, .gdb_index = 1, },
+	[2] = { .name = "r2", .cookie = 2, .mode = ARM_MODE_ANY, .gdb_index = 2, },
+	[3] = { .name = "r3", .cookie = 3, .mode = ARM_MODE_ANY, .gdb_index = 3, },
+	[4] = { .name = "r4", .cookie = 4, .mode = ARM_MODE_ANY, .gdb_index = 4, },
+	[5] = { .name = "r5", .cookie = 5, .mode = ARM_MODE_ANY, .gdb_index = 5, },
+	[6] = { .name = "r6", .cookie = 6, .mode = ARM_MODE_ANY, .gdb_index = 6, },
+	[7] = { .name = "r7", .cookie = 7, .mode = ARM_MODE_ANY, .gdb_index = 7, },
 
 	/* NOTE: regs 8..12 might be shadowed by FIQ ... flagging
 	 * them as MODE_ANY creates special cases.  (ANY means
 	 * "not mapped" elsewhere; here it's "everything but FIQ".)
 	 */
-	{ .name = "r8", .cookie = 8, .mode = ARM_MODE_ANY, .gdb_index = 8, },
-	{ .name = "r9", .cookie = 9, .mode = ARM_MODE_ANY, .gdb_index = 9, },
-	{ .name = "r10", .cookie = 10, .mode = ARM_MODE_ANY, .gdb_index = 10, },
-	{ .name = "r11", .cookie = 11, .mode = ARM_MODE_ANY, .gdb_index = 11, },
-	{ .name = "r12", .cookie = 12, .mode = ARM_MODE_ANY, .gdb_index = 12, },
+	[8] = { .name = "r8", .cookie = 8, .mode = ARM_MODE_ANY, .gdb_index = 8, },
+	[9] = { .name = "r9", .cookie = 9, .mode = ARM_MODE_ANY, .gdb_index = 9, },
+	[10] = { .name = "r10", .cookie = 10, .mode = ARM_MODE_ANY, .gdb_index = 10, },
+	[11] = { .name = "r11", .cookie = 11, .mode = ARM_MODE_ANY, .gdb_index = 11, },
+	[12] = { .name = "r12", .cookie = 12, .mode = ARM_MODE_ANY, .gdb_index = 12, },
 
 	/* Historical GDB mapping of indices:
 	 *  - 13-14 are sp and lr, but banked counterparts are used
@@ -300,47 +300,47 @@ static const struct {
 	 */
 
 	/* NOTE all MODE_USR registers are equivalent to MODE_SYS ones */
-	{ .name = "sp_usr", .cookie = 13, .mode = ARM_MODE_USR, .gdb_index = 26, },
-	{ .name = "lr_usr", .cookie = 14, .mode = ARM_MODE_USR, .gdb_index = 27, },
+	[13] = { .name = "sp_usr", .cookie = 13, .mode = ARM_MODE_USR, .gdb_index = 26, },
+	[14] = { .name = "lr_usr", .cookie = 14, .mode = ARM_MODE_USR, .gdb_index = 27, },
 
 	/* guaranteed to be at index 15 */
-	{ .name = "pc", .cookie = 15, .mode = ARM_MODE_ANY, .gdb_index = 15, },
-	{ .name = "r8_fiq", .cookie = 8, .mode = ARM_MODE_FIQ, .gdb_index = 28, },
-	{ .name = "r9_fiq", .cookie = 9, .mode = ARM_MODE_FIQ, .gdb_index = 29, },
-	{ .name = "r10_fiq", .cookie = 10, .mode = ARM_MODE_FIQ, .gdb_index = 30, },
-	{ .name = "r11_fiq", .cookie = 11, .mode = ARM_MODE_FIQ, .gdb_index = 31, },
-	{ .name = "r12_fiq", .cookie = 12, .mode = ARM_MODE_FIQ, .gdb_index = 32, },
+	[15] = { .name = "pc", .cookie = 15, .mode = ARM_MODE_ANY, .gdb_index = 15, },
+	[16] = { .name = "r8_fiq", .cookie = 8, .mode = ARM_MODE_FIQ, .gdb_index = 28, },
+	[17] = { .name = "r9_fiq", .cookie = 9, .mode = ARM_MODE_FIQ, .gdb_index = 29, },
+	[18] = { .name = "r10_fiq", .cookie = 10, .mode = ARM_MODE_FIQ, .gdb_index = 30, },
+	[19] = { .name = "r11_fiq", .cookie = 11, .mode = ARM_MODE_FIQ, .gdb_index = 31, },
+	[20] = { .name = "r12_fiq", .cookie = 12, .mode = ARM_MODE_FIQ, .gdb_index = 32, },
 
-	{ .name = "sp_fiq", .cookie = 13, .mode = ARM_MODE_FIQ, .gdb_index = 33, },
-	{ .name = "lr_fiq", .cookie = 14, .mode = ARM_MODE_FIQ, .gdb_index = 34, },
+	[21] = { .name = "sp_fiq", .cookie = 13, .mode = ARM_MODE_FIQ, .gdb_index = 33, },
+	[22] = { .name = "lr_fiq", .cookie = 14, .mode = ARM_MODE_FIQ, .gdb_index = 34, },
 
-	{ .name = "sp_irq", .cookie = 13, .mode = ARM_MODE_IRQ, .gdb_index = 35, },
-	{ .name = "lr_irq", .cookie = 14, .mode = ARM_MODE_IRQ, .gdb_index = 36, },
+	[23] = { .name = "sp_irq", .cookie = 13, .mode = ARM_MODE_IRQ, .gdb_index = 35, },
+	[24] = { .name = "lr_irq", .cookie = 14, .mode = ARM_MODE_IRQ, .gdb_index = 36, },
 
-	{ .name = "sp_svc", .cookie = 13, .mode = ARM_MODE_SVC, .gdb_index = 37, },
-	{ .name = "lr_svc", .cookie = 14, .mode = ARM_MODE_SVC, .gdb_index = 38, },
+	[25] = { .name = "sp_svc", .cookie = 13, .mode = ARM_MODE_SVC, .gdb_index = 37, },
+	[26] = { .name = "lr_svc", .cookie = 14, .mode = ARM_MODE_SVC, .gdb_index = 38, },
 
-	{ .name = "sp_abt", .cookie = 13, .mode = ARM_MODE_ABT, .gdb_index = 39, },
-	{ .name = "lr_abt", .cookie = 14, .mode = ARM_MODE_ABT, .gdb_index = 40, },
+	[27] = { .name = "sp_abt", .cookie = 13, .mode = ARM_MODE_ABT, .gdb_index = 39, },
+	[28] = { .name = "lr_abt", .cookie = 14, .mode = ARM_MODE_ABT, .gdb_index = 40, },
 
-	{ .name = "sp_und", .cookie = 13, .mode = ARM_MODE_UND, .gdb_index = 41, },
-	{ .name = "lr_und", .cookie = 14, .mode = ARM_MODE_UND, .gdb_index = 42, },
+	[29] = { .name = "sp_und", .cookie = 13, .mode = ARM_MODE_UND, .gdb_index = 41, },
+	[30] = { .name = "lr_und", .cookie = 14, .mode = ARM_MODE_UND, .gdb_index = 42, },
 
-	{ .name = "cpsr", .cookie = 16, .mode = ARM_MODE_ANY, .gdb_index = 25, },
-	{ .name = "spsr_fiq", .cookie = 16, .mode = ARM_MODE_FIQ, .gdb_index = 43, },
-	{ .name = "spsr_irq", .cookie = 16, .mode = ARM_MODE_IRQ, .gdb_index = 44, },
-	{ .name = "spsr_svc", .cookie = 16, .mode = ARM_MODE_SVC, .gdb_index = 45, },
-	{ .name = "spsr_abt", .cookie = 16, .mode = ARM_MODE_ABT, .gdb_index = 46, },
-	{ .name = "spsr_und", .cookie = 16, .mode = ARM_MODE_UND, .gdb_index = 47, },
+	[31] = { .name = "cpsr", .cookie = 16, .mode = ARM_MODE_ANY, .gdb_index = 25, },
+	[32] = { .name = "spsr_fiq", .cookie = 16, .mode = ARM_MODE_FIQ, .gdb_index = 43, },
+	[33] = { .name = "spsr_irq", .cookie = 16, .mode = ARM_MODE_IRQ, .gdb_index = 44, },
+	[34] = { .name = "spsr_svc", .cookie = 16, .mode = ARM_MODE_SVC, .gdb_index = 45, },
+	[35] = { .name = "spsr_abt", .cookie = 16, .mode = ARM_MODE_ABT, .gdb_index = 46, },
+	[36] = { .name = "spsr_und", .cookie = 16, .mode = ARM_MODE_UND, .gdb_index = 47, },
 
 	/* These are only used for GDB target description, banked registers are accessed instead */
-	{ .name = "sp", .cookie = 13, .mode = ARM_MODE_ANY, .gdb_index = 13, },
-	{ .name = "lr", .cookie = 14, .mode = ARM_MODE_ANY, .gdb_index = 14, },
+	[37] = { .name = "sp", .cookie = 13, .mode = ARM_MODE_ANY, .gdb_index = 13, },
+	[38] = { .name = "lr", .cookie = 14, .mode = ARM_MODE_ANY, .gdb_index = 14, },
 
 	/* These exist only when the Security Extension (TrustZone) is present */
-	{ .name = "sp_mon", .cookie = 13, .mode = ARM_MODE_MON, .gdb_index = 48, },
-	{ .name = "lr_mon", .cookie = 14, .mode = ARM_MODE_MON, .gdb_index = 49, },
-	{ .name = "spsr_mon", .cookie = 16, .mode = ARM_MODE_MON, .gdb_index = 50, },
+	[39] = { .name = "sp_mon", .cookie = 13, .mode = ARM_MODE_MON, .gdb_index = 48, },
+	[40] = { .name = "lr_mon", .cookie = 14, .mode = ARM_MODE_MON, .gdb_index = 49, },
+	[41] = { .name = "spsr_mon", .cookie = 16, .mode = ARM_MODE_MON, .gdb_index = 50, },
 
 };
 
@@ -778,17 +778,17 @@ COMMAND_HANDLER(handle_armv4_5_reg_command)
 	struct reg *regs;
 
 	if (!is_arm(arm)) {
-		command_print(CMD_CTX, "current target isn't an ARM");
+		command_print(CMD, "current target isn't an ARM");
 		return ERROR_FAIL;
 	}
 
 	if (target->state != TARGET_HALTED) {
-		command_print(CMD_CTX, "error: target must be halted for register accesses");
+		command_print(CMD, "error: target must be halted for register accesses");
 		return ERROR_FAIL;
 	}
 
 	if (arm->core_type != ARM_MODE_ANY) {
-		command_print(CMD_CTX,
+		command_print(CMD,
 			"Microcontroller Profile not supported - use standard reg cmd");
 		return ERROR_OK;
 	}
@@ -799,7 +799,7 @@ COMMAND_HANDLER(handle_armv4_5_reg_command)
 	}
 
 	if (!arm->full_context) {
-		command_print(CMD_CTX, "error: target doesn't support %s",
+		command_print(CMD, "error: target doesn't support %s",
 			CMD_NAME);
 		return ERROR_FAIL;
 	}
@@ -828,7 +828,7 @@ COMMAND_HANDLER(handle_armv4_5_reg_command)
 				shadow = "shadow ";
 				break;
 		}
-		command_print(CMD_CTX, "%s%s mode %sregisters",
+		command_print(CMD, "%s%s mode %sregisters",
 			sep, name, shadow);
 
 		/* display N rows of up to 4 registers each */
@@ -855,7 +855,7 @@ COMMAND_HANDLER(handle_armv4_5_reg_command)
 						"%8s: %8.8" PRIx32 " ",
 						reg->name, value);
 			}
-			command_print(CMD_CTX, "%s", output);
+			command_print(CMD, "%s", output);
 		}
 	}
 
@@ -868,13 +868,13 @@ COMMAND_HANDLER(handle_armv4_5_core_state_command)
 	struct arm *arm = target_to_arm(target);
 
 	if (!is_arm(arm)) {
-		command_print(CMD_CTX, "current target isn't an ARM");
+		command_print(CMD, "current target isn't an ARM");
 		return ERROR_FAIL;
 	}
 
 	if (arm->core_type == ARM_MODE_THREAD) {
 		/* armv7m not supported */
-		command_print(CMD_CTX, "Unsupported Command");
+		command_print(CMD, "Unsupported Command");
 		return ERROR_OK;
 	}
 
@@ -885,7 +885,7 @@ COMMAND_HANDLER(handle_armv4_5_core_state_command)
 			arm->core_state = ARM_STATE_THUMB;
 	}
 
-	command_print(CMD_CTX, "core state: %s", arm_state_strings[arm->core_state]);
+	command_print(CMD, "core state: %s", arm_state_strings[arm->core_state]);
 
 	return ERROR_OK;
 }
@@ -906,7 +906,7 @@ COMMAND_HANDLER(handle_arm_disassemble_command)
 	int thumb = 0;
 
 	if (!is_arm(arm)) {
-		command_print(CMD_CTX, "current target isn't an ARM");
+		command_print(CMD, "current target isn't an ARM");
 		return ERROR_FAIL;
 	}
 
@@ -928,7 +928,7 @@ COMMAND_HANDLER(handle_arm_disassemble_command)
 			COMMAND_PARSE_ADDRESS(CMD_ARGV[0], address);
 			if (address & 0x01) {
 				if (!thumb) {
-					command_print(CMD_CTX, "Disassemble as Thumb");
+					command_print(CMD, "Disassemble as Thumb");
 					thumb = 1;
 				}
 				address &= ~1;
@@ -963,7 +963,7 @@ usage:
 			if (retval != ERROR_OK)
 				break;
 		}
-		command_print(CMD_CTX, "%s", cur_instruction.text);
+		command_print(CMD, "%s", cur_instruction.text);
 		address += cur_instruction.instruction_size;
 	}
 

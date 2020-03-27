@@ -52,6 +52,7 @@
 #include "config.h"
 #endif
 
+#include <helper/time_support.h>
 #include <jtag/interface.h>
 #include "bitbang.h"
 
@@ -112,6 +113,7 @@ static void unexport_sysfs_gpio(int gpio)
  */
 static int setup_sysfs_gpio(int gpio, int is_output, int init_high)
 {
+	struct timeval timeout, now;
 	char buf[40];
 	char gpiostr[5];
 	int ret;
@@ -131,8 +133,19 @@ static int setup_sysfs_gpio(int gpio, int is_output, int init_high)
 		}
 	}
 
+	gettimeofday(&timeout, NULL);
+	timeval_add_time(&timeout, 0, 500000);
+
 	snprintf(buf, sizeof(buf), "/sys/class/gpio/gpio%d/direction", gpio);
-	ret = open_write_close(buf, is_output ? (init_high ? "high" : "low") : "in");
+	for (;;) {
+		ret = open_write_close(buf, is_output ? (init_high ? "high" : "low") : "in");
+		if (ret >= 0 || errno != EACCES)
+			break;
+		gettimeofday(&now, NULL);
+		if (timeval_compare(&now, &timeout) >= 0)
+			break;
+		jtag_sleep(10000);
+	}
 	if (ret < 0) {
 		LOG_ERROR("Couldn't set direction for gpio %d", gpio);
 		perror("sysfsgpio: ");
@@ -141,7 +154,15 @@ static int setup_sysfs_gpio(int gpio, int is_output, int init_high)
 	}
 
 	snprintf(buf, sizeof(buf), "/sys/class/gpio/gpio%d/value", gpio);
-	ret = open(buf, O_RDWR | O_NONBLOCK | O_SYNC);
+	for (;;) {
+		ret = open(buf, O_RDWR | O_NONBLOCK | O_SYNC);
+		if (ret >= 0 || errno != EACCES)
+			break;
+		gettimeofday(&now, NULL);
+		if (timeval_compare(&now, &timeout) >= 0)
+			break;
+		jtag_sleep(10000);
+	}
 	if (ret < 0) {
 		LOG_ERROR("Couldn't open value for gpio %d", gpio);
 		perror("sysfsgpio: ");
@@ -356,7 +377,7 @@ COMMAND_HANDLER(sysfsgpio_handle_jtag_gpionums)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
-	command_print(CMD_CTX,
+	command_print(CMD,
 			"SysfsGPIO nums: tck = %d, tms = %d, tdi = %d, tdo = %d",
 			tck_gpio, tms_gpio, tdi_gpio, tdo_gpio);
 
@@ -368,7 +389,7 @@ COMMAND_HANDLER(sysfsgpio_handle_jtag_gpionum_tck)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], tck_gpio);
 
-	command_print(CMD_CTX, "SysfsGPIO num: tck = %d", tck_gpio);
+	command_print(CMD, "SysfsGPIO num: tck = %d", tck_gpio);
 	return ERROR_OK;
 }
 
@@ -377,7 +398,7 @@ COMMAND_HANDLER(sysfsgpio_handle_jtag_gpionum_tms)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], tms_gpio);
 
-	command_print(CMD_CTX, "SysfsGPIO num: tms = %d", tms_gpio);
+	command_print(CMD, "SysfsGPIO num: tms = %d", tms_gpio);
 	return ERROR_OK;
 }
 
@@ -386,7 +407,7 @@ COMMAND_HANDLER(sysfsgpio_handle_jtag_gpionum_tdo)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], tdo_gpio);
 
-	command_print(CMD_CTX, "SysfsGPIO num: tdo = %d", tdo_gpio);
+	command_print(CMD, "SysfsGPIO num: tdo = %d", tdo_gpio);
 	return ERROR_OK;
 }
 
@@ -395,7 +416,7 @@ COMMAND_HANDLER(sysfsgpio_handle_jtag_gpionum_tdi)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], tdi_gpio);
 
-	command_print(CMD_CTX, "SysfsGPIO num: tdi = %d", tdi_gpio);
+	command_print(CMD, "SysfsGPIO num: tdi = %d", tdi_gpio);
 	return ERROR_OK;
 }
 
@@ -404,7 +425,7 @@ COMMAND_HANDLER(sysfsgpio_handle_jtag_gpionum_srst)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], srst_gpio);
 
-	command_print(CMD_CTX, "SysfsGPIO num: srst = %d", srst_gpio);
+	command_print(CMD, "SysfsGPIO num: srst = %d", srst_gpio);
 	return ERROR_OK;
 }
 
@@ -413,7 +434,7 @@ COMMAND_HANDLER(sysfsgpio_handle_jtag_gpionum_trst)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], trst_gpio);
 
-	command_print(CMD_CTX, "SysfsGPIO num: trst = %d", trst_gpio);
+	command_print(CMD, "SysfsGPIO num: trst = %d", trst_gpio);
 	return ERROR_OK;
 }
 
@@ -426,7 +447,7 @@ COMMAND_HANDLER(sysfsgpio_handle_swd_gpionums)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
-	command_print(CMD_CTX,
+	command_print(CMD,
 			"SysfsGPIO nums: swclk = %d, swdio = %d",
 			swclk_gpio, swdio_gpio);
 
@@ -438,7 +459,7 @@ COMMAND_HANDLER(sysfsgpio_handle_swd_gpionum_swclk)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], swclk_gpio);
 
-	command_print(CMD_CTX, "SysfsGPIO num: swclk = %d", swclk_gpio);
+	command_print(CMD, "SysfsGPIO num: swclk = %d", swclk_gpio);
 	return ERROR_OK;
 }
 
@@ -447,7 +468,7 @@ COMMAND_HANDLER(sysfsgpio_handle_swd_gpionum_swdio)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], swdio_gpio);
 
-	command_print(CMD_CTX, "SysfsGPIO num: swdio = %d", swdio_gpio);
+	command_print(CMD, "SysfsGPIO num: swdio = %d", swdio_gpio);
 	return ERROR_OK;
 }
 
@@ -530,21 +551,27 @@ static int sysfsgpio_quit(void);
 
 static const char * const sysfsgpio_transports[] = { "jtag", "swd", NULL };
 
-struct jtag_interface sysfsgpio_interface = {
-	.name = "sysfsgpio",
+static struct jtag_interface sysfsgpio_interface = {
 	.supported = DEBUG_CAP_TMS_SEQ,
 	.execute_queue = bitbang_execute_queue,
+};
+
+struct adapter_driver sysfsgpio_adapter_driver = {
+	.name = "sysfsgpio",
 	.transports = sysfsgpio_transports,
-	.swd = &bitbang_swd,
 	.commands = sysfsgpio_command_handlers,
+
 	.init = sysfsgpio_init,
 	.quit = sysfsgpio_quit,
+	.reset = sysfsgpio_reset,
+
+	.jtag_ops = &sysfsgpio_interface,
+	.swd_ops = &bitbang_swd,
 };
 
 static struct bitbang_interface sysfsgpio_bitbang = {
 	.read = sysfsgpio_read,
 	.write = sysfsgpio_write,
-	.reset = sysfsgpio_reset,
 	.swdio_read = sysfsgpio_swdio_read,
 	.swdio_drive = sysfsgpio_swdio_drive,
 	.blink = 0

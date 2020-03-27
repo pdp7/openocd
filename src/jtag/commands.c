@@ -31,6 +31,7 @@
 #endif
 
 #include <jtag/jtag.h>
+#include <transport/transport.h>
 #include "commands.h"
 
 struct cmd_queue_page {
@@ -48,6 +49,19 @@ static struct jtag_command **next_command_pointer = &jtag_command_queue;
 
 void jtag_queue_command(struct jtag_command *cmd)
 {
+	if (!transport_is_jtag()) {
+		/*
+		 * FIXME: This should not happen!
+		 * There could be old code that queues jtag commands with non jtag interfaces so, for
+		 * the moment simply highlight it by log an error.
+		 * We should fix it quitting with assert(0) because it is an internal error, or returning
+		 * an error after call to jtag_command_queue_reset() to free the jtag queue and avoid
+		 * memory leaks.
+		 * The fix can be applied immediately after next release (v0.11.0 ?)
+		 */
+		LOG_ERROR("JTAG API jtag_queue_command() called on non JTAG interface");
+	}
+
 	/* this command goes on the end, so ensure the queue terminates */
 	cmd->next = NULL;
 
@@ -193,33 +207,33 @@ int jtag_build_buffer(const struct scan_command *cmd, uint8_t **buffer)
 
 	bit_count = 0;
 
-	DEBUG_JTAG_IO("%s num_fields: %i",
+	LOG_DEBUG_IO("%s num_fields: %i",
 			cmd->ir_scan ? "IRSCAN" : "DRSCAN",
 			cmd->num_fields);
 
 	for (i = 0; i < cmd->num_fields; i++) {
 		if (cmd->fields[i].out_value) {
-#ifdef _DEBUG_JTAG_IO_
-			char *char_buf = buf_to_str(cmd->fields[i].out_value,
-				(cmd->fields[i].num_bits > DEBUG_JTAG_IOZ)
-					? DEBUG_JTAG_IOZ
-					: cmd->fields[i].num_bits, 16);
+			if (LOG_LEVEL_IS(LOG_LVL_DEBUG_IO)) {
+				char *char_buf = buf_to_str(cmd->fields[i].out_value,
+						(cmd->fields[i].num_bits > DEBUG_JTAG_IOZ)
+						? DEBUG_JTAG_IOZ
+								: cmd->fields[i].num_bits, 16);
 
-			LOG_DEBUG("fields[%i].out_value[%i]: 0x%s", i,
-					cmd->fields[i].num_bits, char_buf);
-			free(char_buf);
-#endif
+				LOG_DEBUG("fields[%i].out_value[%i]: 0x%s", i,
+						cmd->fields[i].num_bits, char_buf);
+				free(char_buf);
+			}
 			buf_set_buf(cmd->fields[i].out_value, 0, *buffer,
 					bit_count, cmd->fields[i].num_bits);
 		} else {
-			DEBUG_JTAG_IO("fields[%i].out_value[%i]: NULL",
+			LOG_DEBUG_IO("fields[%i].out_value[%i]: NULL",
 					i, cmd->fields[i].num_bits);
 		}
 
 		bit_count += cmd->fields[i].num_bits;
 	}
 
-	/*DEBUG_JTAG_IO("bit_count totalling: %i",  bit_count); */
+	/*LOG_DEBUG_IO("bit_count totalling: %i",  bit_count); */
 
 	return bit_count;
 }
@@ -242,16 +256,16 @@ int jtag_read_buffer(uint8_t *buffer, const struct scan_command *cmd)
 			uint8_t *captured = buf_set_buf(buffer, bit_count,
 					malloc(DIV_ROUND_UP(num_bits, 8)), 0, num_bits);
 
-#ifdef _DEBUG_JTAG_IO_
-			char *char_buf = buf_to_str(captured,
-					(num_bits > DEBUG_JTAG_IOZ)
+			if (LOG_LEVEL_IS(LOG_LVL_DEBUG_IO)) {
+				char *char_buf = buf_to_str(captured,
+						(num_bits > DEBUG_JTAG_IOZ)
 						? DEBUG_JTAG_IOZ
-						: num_bits, 16);
+								: num_bits, 16);
 
-			LOG_DEBUG("fields[%i].in_value[%i]: 0x%s",
-					i, num_bits, char_buf);
-			free(char_buf);
-#endif
+				LOG_DEBUG("fields[%i].in_value[%i]: 0x%s",
+						i, num_bits, char_buf);
+				free(char_buf);
+			}
 
 			if (cmd->fields[i].in_value)
 				buf_cpy(captured, cmd->fields[i].in_value, num_bits);

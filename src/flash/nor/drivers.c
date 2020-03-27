@@ -71,6 +71,8 @@ extern const struct flash_driver psoc6_efuse;
 extern const struct flash_driver psoc6_2m_efuse;
 extern const struct flash_driver psoc6_flash;
 extern const struct flash_driver psoc6_2m_flash;
+extern const struct flash_driver renesas_rpchf_flash;
+extern const struct flash_driver sh_qspi_flash;
 extern const struct flash_driver sim3x_flash;
 extern const struct flash_driver stellaris_flash;
 extern const struct flash_driver stm32f1x_flash;
@@ -82,6 +84,7 @@ extern const struct flash_driver stmsmi_flash;
 extern const struct flash_driver str7x_flash;
 extern const struct flash_driver str9x_flash;
 extern const struct flash_driver str9xpec_flash;
+extern const struct flash_driver swm050_flash;
 extern const struct flash_driver tms470_flash;
 extern const struct flash_driver traveo21_efuse;
 extern const struct flash_driver traveo22_efuse;
@@ -149,6 +152,8 @@ static const struct flash_driver * const flash_drivers[] = {
 	&psoc6_2m_efuse,
 	&psoc6_flash,
 	&psoc6_2m_flash,
+	&renesas_rpchf_flash,
+	&sh_qspi_flash,
 	&sim3x_flash,
 	&stellaris_flash,
 	&stm32f1x_flash,
@@ -160,6 +165,7 @@ static const struct flash_driver * const flash_drivers[] = {
 	&str7x_flash,
 	&str9x_flash,
 	&str9xpec_flash,
+	&swm050_flash,
 	&tms470_flash,
 	&traveo21_efuse,
 	&traveo22_efuse,

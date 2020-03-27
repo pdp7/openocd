@@ -34,7 +34,7 @@ static LIST_HEAD(all_dap);
 
 extern const struct dap_ops swd_dap_ops;
 extern const struct dap_ops jtag_dp_ops;
-extern struct jtag_interface *jtag_interface;
+extern struct adapter_driver *adapter_driver;
 
 /* DAP command support */
 struct arm_dap_object {
@@ -56,7 +56,7 @@ static void dap_instance_init(struct adiv5_dap *dap)
 		/* Number of bits for tar autoincrement, impl. dep. at least 10 */
 		dap->ap[i].tar_autoincr_block = (1<<10);
 		/* default CSW value */
-		dap->ap[i].csw_default = CSW_DEFAULT;
+		dap->ap[i].csw_default = CSW_AHB_DEFAULT;
 	}
 	INIT_LIST_HEAD(&dap->cmd_journal);
 	INIT_LIST_HEAD(&dap->cmd_pool);
@@ -118,7 +118,11 @@ static int dap_init_all(void)
 
 		if (transport_is_swd()) {
 			dap->ops = &swd_dap_ops;
-			obj->swd = jtag_interface->swd;
+			obj->swd = adapter_driver->swd_ops;
+		} else if (transport_is_dapdirect_swd()) {
+			dap->ops = adapter_driver->dap_swd_ops;
+		} else if (transport_is_dapdirect_jtag()) {
+			dap->ops = adapter_driver->dap_jtag_ops;
 		} else
 			dap->ops = &jtag_dp_ops;
 
@@ -335,7 +339,7 @@ COMMAND_HANDLER(handle_dap_info_command)
 			return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
-	return dap_info_command(CMD_CTX, &dap->ap[apsel]);
+	return dap_info_command(CMD, &dap->ap[apsel]);
 }
 
 static const struct command_registration dap_subcommand_handlers[] = {

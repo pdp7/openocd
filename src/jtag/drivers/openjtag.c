@@ -45,7 +45,7 @@
 
 #include <jtag/interface.h>
 #include <jtag/commands.h>
-#include "libusb_common.h"
+#include "libusb_helper.h"
 
 static enum {
 	OPENJTAG_VARIANT_STANDARD,
@@ -111,7 +111,7 @@ static uint8_t usb_rx_buf[OPENJTAG_BUFFER_SIZE];
 static struct openjtag_scan_result openjtag_scan_result_buffer[OPENJTAG_MAX_PENDING_RESULTS];
 static int openjtag_scan_result_count;
 
-static jtag_libusb_device_handle *usbh;
+static struct libusb_device_handle *usbh;
 
 /* CY7C65215 model only */
 #define CY7C65215_JTAG_REQUEST  0x40  /* bmRequestType: vendor host-to-device */
@@ -256,10 +256,9 @@ static int openjtag_buf_write_cy7c65215(
 		return ERROR_JTAG_DEVICE_ERROR;
 	}
 
-	ret = jtag_libusb_bulk_write(usbh, ep_out, (char *)buf, size,
-								 CY7C65215_USB_TIMEOUT);
-	if (ret < 0) {
-		LOG_ERROR("bulk write failed, error %d", ret);
+	if (jtag_libusb_bulk_write(usbh, ep_out, (char *)buf, size,
+				   CY7C65215_USB_TIMEOUT, &ret)) {
+		LOG_ERROR("bulk write failed, error");
 		return ERROR_JTAG_DEVICE_ERROR;
 	}
 	*bytes_written = ret;
@@ -292,7 +291,7 @@ static int openjtag_buf_read_standard(
 				qty - *bytes_read);
 		if (retval < 0) {
 			*bytes_read = 0;
-			DEBUG_JTAG_IO("ftdi_read_data: %s",
+			LOG_DEBUG_IO("ftdi_read_data: %s",
 					ftdi_get_error_string(&ftdic));
 			return ERROR_JTAG_DEVICE_ERROR;
 		}
@@ -324,10 +323,9 @@ static int openjtag_buf_read_cy7c65215(
 		return ERROR_JTAG_DEVICE_ERROR;
 	}
 
-	ret = jtag_libusb_bulk_read(usbh, ep_in, (char *)buf, qty,
-								CY7C65215_USB_TIMEOUT);
-	if (ret < 0) {
-		LOG_ERROR("bulk read failed, error %d", ret);
+	if (jtag_libusb_bulk_read(usbh, ep_in, (char *)buf, qty,
+				  CY7C65215_USB_TIMEOUT, &ret)) {
+		LOG_ERROR("bulk read failed, error");
 		return ERROR_JTAG_DEVICE_ERROR;
 	}
 	*bytes_read = ret;
@@ -574,7 +572,7 @@ static int openjtag_execute_tap_queue(void)
 
 			while (len > 0) {
 				if (len <= 8 && openjtag_variant != OPENJTAG_VARIANT_CY7C65215) {
-					DEBUG_JTAG_IO("bits < 8 buf = 0x%X, will be 0x%X",
+					LOG_DEBUG_IO("bits < 8 buf = 0x%X, will be 0x%X",
 						usb_rx_buf[rx_offs], usb_rx_buf[rx_offs] >> (8 - len));
 					buffer[count] = usb_rx_buf[rx_offs] >> (8 - len);
 					len = 0;
@@ -609,8 +607,8 @@ static void openjtag_add_byte(char buf)
 {
 
 	if (usb_tx_buf_offs == OPENJTAG_BUFFER_SIZE) {
-		DEBUG_JTAG_IO("Forcing execute_tap_queue");
-		DEBUG_JTAG_IO("TX Buff offs=%d", usb_tx_buf_offs);
+		LOG_DEBUG_IO("Forcing execute_tap_queue");
+		LOG_DEBUG_IO("TX Buff offs=%d", usb_tx_buf_offs);
 		openjtag_execute_tap_queue();
 	}
 
@@ -624,8 +622,8 @@ static void openjtag_add_scan(uint8_t *buffer, int length, struct scan_command *
 	/* Ensure space to send long chains */
 	/* We add two byte for each eight (or less) bits, one for command, one for data */
 	if (usb_tx_buf_offs + (DIV_ROUND_UP(length, 8) * 2) >= OPENJTAG_BUFFER_SIZE) {
-		DEBUG_JTAG_IO("Forcing execute_tap_queue from scan");
-		DEBUG_JTAG_IO("TX Buff offs=%d len=%d", usb_tx_buf_offs, DIV_ROUND_UP(length, 8) * 2);
+		LOG_DEBUG_IO("Forcing execute_tap_queue from scan");
+		LOG_DEBUG_IO("TX Buff offs=%d len=%d", usb_tx_buf_offs, DIV_ROUND_UP(length, 8) * 2);
 		openjtag_execute_tap_queue();
 	}
 
@@ -670,7 +668,7 @@ static void openjtag_add_scan(uint8_t *buffer, int length, struct scan_command *
 static void openjtag_execute_reset(struct jtag_command *cmd)
 {
 
-	DEBUG_JTAG_IO("reset trst: %i srst %i",
+	LOG_DEBUG_IO("reset trst: %i srst %i",
 			cmd->cmd.reset->trst, cmd->cmd.reset->srst);
 
 	uint8_t buf = 0x00;
@@ -703,7 +701,7 @@ static void openjtag_set_state(uint8_t openocd_state)
 
 static void openjtag_execute_statemove(struct jtag_command *cmd)
 {
-	DEBUG_JTAG_IO("state move to %i", cmd->cmd.statemove->end_state);
+	LOG_DEBUG_IO("state move to %i", cmd->cmd.statemove->end_state);
 
 	tap_set_end_state(cmd->cmd.statemove->end_state);
 
@@ -719,7 +717,7 @@ static void openjtag_execute_scan(struct jtag_command *cmd)
 	int scan_size, old_state;
 	uint8_t *buffer;
 
-	DEBUG_JTAG_IO("scan ends in %s", tap_state_name(cmd->cmd.scan->end_state));
+	LOG_DEBUG_IO("scan ends in %s", tap_state_name(cmd->cmd.scan->end_state));
 
 	/* get scan info */
 	tap_set_end_state(cmd->cmd.scan->end_state);
@@ -778,7 +776,7 @@ static void openjtag_execute_runtest(struct jtag_command *cmd)
 
 static void openjtag_execute_command(struct jtag_command *cmd)
 {
-	DEBUG_JTAG_IO("openjtag_execute_command %i", cmd->type);
+	LOG_DEBUG_IO("openjtag_execute_command %i", cmd->type);
 	switch (cmd->type) {
 	case JTAG_RESET:
 			openjtag_execute_reset(cmd);
@@ -892,16 +890,20 @@ static const struct command_registration openjtag_command_handlers[] = {
 	COMMAND_REGISTRATION_DONE
 };
 
-struct jtag_interface openjtag_interface = {
-	.name = "openjtag",
-	.commands = openjtag_command_handlers,
-
+static struct jtag_interface openjtag_interface = {
 	.execute_queue = openjtag_execute_queue,
-	.speed = openjtag_speed,
-	.speed_div = openjtag_speed_div,
-	.khz = openjtag_khz,
-	.init = openjtag_init,
-	.quit = openjtag_quit,
 };
 
+struct adapter_driver openjtag_adapter_driver = {
+	.name = "openjtag",
+	.transports = jtag_only,
+	.commands = openjtag_command_handlers,
 
+	.init = openjtag_init,
+	.quit = openjtag_quit,
+	.speed = openjtag_speed,
+	.khz = openjtag_khz,
+	.speed_div = openjtag_speed_div,
+
+	.jtag_ops = &openjtag_interface,
+};

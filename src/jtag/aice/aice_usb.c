@@ -19,7 +19,7 @@
 #include "config.h"
 #endif
 
-#include <jtag/drivers/libusb_common.h>
+#include <jtag/drivers/libusb_helper.h>
 #include <helper/log.h>
 #include <helper/time_support.h>
 #include <target/target.h>
@@ -349,41 +349,53 @@ static void aice_unpack_dthmb(uint8_t *cmd_ack_code, uint8_t *target_id,
 /* calls the given usb_bulk_* function, allowing for the data to
  * trickle in with some timeouts  */
 static int usb_bulk_with_retries(
-			int (*f)(jtag_libusb_device_handle *, int, char *, int, int),
-			jtag_libusb_device_handle *dev, int ep,
-			char *bytes, int size, int timeout)
+			int (*f)(libusb_device_handle *, int, char *, int, int, int *),
+			libusb_device_handle *dev, int ep,
+			char *bytes, int size, int timeout, int *transferred)
 {
 	int tries = 3, count = 0;
 
 	while (tries && (count < size)) {
-		int result = f(dev, ep, bytes + count, size - count, timeout);
-		if (result > 0)
+		int result, ret;
+
+		ret = f(dev, ep, bytes + count, size - count, timeout, &result);
+		if (ERROR_OK == ret)
 			count += result;
-		else if ((-ETIMEDOUT != result) || !--tries)
-			return result;
+		else if ((ERROR_TIMEOUT_REACHED != ret) || !--tries)
+			return ret;
 	}
-	return count;
+
+	*transferred = count;
+	return ERROR_OK;
 }
 
-static int wrap_usb_bulk_write(jtag_libusb_device_handle *dev, int ep,
-		char *buff, int size, int timeout)
+static int wrap_usb_bulk_write(libusb_device_handle *dev, int ep,
+		char *buff, int size, int timeout, int *transferred)
 {
+
 	/* usb_bulk_write() takes const char *buff */
-	return jtag_libusb_bulk_write(dev, ep, buff, size, timeout);
+	jtag_libusb_bulk_write(dev, ep, buff, size, timeout, transferred);
+
+	return 0;
 }
 
-static inline int usb_bulk_write_ex(jtag_libusb_device_handle *dev, int ep,
+static inline int usb_bulk_write_ex(libusb_device_handle *dev, int ep,
 		char *bytes, int size, int timeout)
 {
-	return usb_bulk_with_retries(&wrap_usb_bulk_write,
-			dev, ep, bytes, size, timeout);
+	int tr = 0;
+
+	usb_bulk_with_retries(&wrap_usb_bulk_write,
+			dev, ep, bytes, size, timeout, &tr);
+	return tr;
 }
 
-static inline int usb_bulk_read_ex(jtag_libusb_device_handle *dev, int ep,
+static inline int usb_bulk_read_ex(struct libusb_device_handle *dev, int ep,
 		char *bytes, int size, int timeout)
 {
-	return usb_bulk_with_retries(&jtag_libusb_bulk_read,
-			dev, ep, bytes, size, timeout);
+	int tr = 0;
+	usb_bulk_with_retries(&jtag_libusb_bulk_read,
+			dev, ep, bytes, size, timeout, &tr);
+	return tr;
 }
 
 /* Write data from out_buffer to USB. */
@@ -400,7 +412,7 @@ static int aice_usb_write(uint8_t *out_buffer, int out_length)
 	result = usb_bulk_write_ex(aice_handler.usb_handle, aice_handler.usb_write_ep,
 			(char *)out_buffer, out_length, AICE_USB_TIMEOUT);
 
-	DEBUG_JTAG_IO("aice_usb_write, out_length = %i, result = %i",
+	LOG_DEBUG_IO("aice_usb_write, out_length = %i, result = %i",
 			out_length, result);
 
 	return result;
@@ -412,7 +424,7 @@ static int aice_usb_read(uint8_t *in_buffer, int expected_size)
 	int32_t result = usb_bulk_read_ex(aice_handler.usb_handle, aice_handler.usb_read_ep,
 			(char *)in_buffer, expected_size, AICE_USB_TIMEOUT);
 
-	DEBUG_JTAG_IO("aice_usb_read, result = %" PRId32, result);
+	LOG_DEBUG_IO("aice_usb_read, result = %" PRId32, result);
 
 	return result;
 }
@@ -2095,7 +2107,7 @@ static int aice_usb_open(struct aice_port_param_s *param)
 {
 	const uint16_t vids[] = { param->vid, 0 };
 	const uint16_t pids[] = { param->pid, 0 };
-	struct jtag_libusb_device_handle *devh;
+	struct libusb_device_handle *devh;
 
 	if (jtag_libusb_open(vids, pids, NULL, &devh) != ERROR_OK)
 		return ERROR_FAIL;
@@ -2113,7 +2125,7 @@ static int aice_usb_open(struct aice_port_param_s *param)
 
 #if IS_WIN32 == 0
 
-	jtag_libusb_reset_device(devh);
+	libusb_reset_device(devh);
 
 #if IS_DARWIN == 0
 
@@ -2134,8 +2146,8 @@ static int aice_usb_open(struct aice_port_param_s *param)
 #endif
 
 	/* usb_set_configuration required under win32 */
-	jtag_libusb_set_configuration(devh, 0);
-	jtag_libusb_claim_interface(devh, 0);
+	libusb_set_configuration(devh, 0);
+	libusb_claim_interface(devh, 0);
 
 	unsigned int aice_read_ep;
 	unsigned int aice_write_ep;
@@ -2812,7 +2824,7 @@ static int aice_issue_reset_hold(uint32_t coreid)
 	/* set no_dbgi_pin to 0 */
 	uint32_t pin_status;
 	aice_read_ctrl(AICE_READ_CTRL_GET_JTAG_PIN_STATUS, &pin_status);
-	if (pin_status | 0x4)
+	if (pin_status & 0x4)
 		aice_write_ctrl(AICE_WRITE_CTRL_JTAG_PIN_STATUS, pin_status & (~0x4));
 
 	/* issue restart */

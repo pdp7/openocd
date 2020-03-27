@@ -253,8 +253,7 @@ static int ambiqmicro_read_part_info(struct flash_bank *bank)
 
 	}
 
-	if (ambiqmicro_info->target_class <
-		(sizeof(ambiqmicroParts)/sizeof(ambiqmicroParts[0])))
+	if (ambiqmicro_info->target_class < ARRAY_SIZE(ambiqmicroParts))
 		ambiqmicro_info->target_name =
 			ambiqmicroParts[ambiqmicro_info->target_class].partname;
 	else
@@ -791,9 +790,9 @@ COMMAND_HANDLER(ambiqmicro_handle_mass_erase_command)
 		for (i = 0; i < bank->num_sectors; i++)
 			bank->sectors[i].is_erased = 1;
 
-		command_print(CMD_CTX, "ambiqmicro mass erase complete");
+		command_print(CMD, "ambiqmicro mass erase complete");
 	} else
-		command_print(CMD_CTX, "ambiqmicro mass erase failed");
+		command_print(CMD, "ambiqmicro mass erase failed");
 
 	return ERROR_OK;
 }
@@ -815,9 +814,9 @@ COMMAND_HANDLER(ambiqmicro_handle_page_erase_command)
 		return retval;
 
 	if (ambiqmicro_erase(bank, first, last) == ERROR_OK)
-		command_print(CMD_CTX, "ambiqmicro page erase complete");
+		command_print(CMD, "ambiqmicro page erase complete");
 	else
-		command_print(CMD_CTX, "ambiqmicro page erase failed");
+		command_print(CMD, "ambiqmicro page erase failed");
 
 	return ERROR_OK;
 }
@@ -838,7 +837,7 @@ COMMAND_HANDLER(ambiqmicro_handle_program_otp_command)
 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], offset);
 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], count);
 
-	command_print(CMD_CTX, "offset=0x%08x count=%d", offset, count);
+	command_print(CMD, "offset=0x%08x count=%d", offset, count);
 
 	CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &bank);
 

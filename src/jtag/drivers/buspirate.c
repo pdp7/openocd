@@ -34,6 +34,7 @@
 static int buspirate_execute_queue(void);
 static int buspirate_init(void);
 static int buspirate_quit(void);
+static int buspirate_reset(int trst, int srst);
 
 static void buspirate_end_state(tap_state_t state);
 static void buspirate_state_move(void);
@@ -133,7 +134,6 @@ static void buspirate_tap_append_scan(int length, uint8_t *buffer,
 		struct scan_command *command);
 static void buspirate_tap_make_space(int scan, int bits);
 
-static void buspirate_reset(int trst, int srst);
 static void buspirate_set_feature(int, char, char);
 static void buspirate_set_mode(int, char);
 static void buspirate_set_speed(int, char);
@@ -171,7 +171,7 @@ static int buspirate_execute_queue(void)
 	while (cmd) {
 		switch (cmd->type) {
 		case JTAG_RUNTEST:
-			DEBUG_JTAG_IO("runtest %i cycles, end in %s",
+			LOG_DEBUG_IO("runtest %i cycles, end in %s",
 				cmd->cmd.runtest->num_cycles,
 				tap_state_name(cmd->cmd.runtest
 					->end_state));
@@ -181,7 +181,7 @@ static int buspirate_execute_queue(void)
 					->num_cycles);
 			break;
 		case JTAG_TLR_RESET:
-			DEBUG_JTAG_IO("statemove end in %s",
+			LOG_DEBUG_IO("statemove end in %s",
 				tap_state_name(cmd->cmd.statemove
 						->end_state));
 			buspirate_end_state(cmd->cmd.statemove
@@ -189,7 +189,7 @@ static int buspirate_execute_queue(void)
 			buspirate_state_move();
 			break;
 		case JTAG_PATHMOVE:
-			DEBUG_JTAG_IO("pathmove: %i states, end in %s",
+			LOG_DEBUG_IO("pathmove: %i states, end in %s",
 				cmd->cmd.pathmove->num_states,
 				tap_state_name(cmd->cmd.pathmove
 					->path[cmd->cmd.pathmove
@@ -199,7 +199,7 @@ static int buspirate_execute_queue(void)
 					cmd->cmd.pathmove->path);
 			break;
 		case JTAG_SCAN:
-			DEBUG_JTAG_IO("scan end in %s",
+			LOG_DEBUG_IO("scan end in %s",
 				tap_state_name(cmd->cmd.scan
 					->end_state));
 
@@ -213,25 +213,13 @@ static int buspirate_execute_queue(void)
 				buffer, scan_size, cmd->cmd.scan);
 
 			break;
-		case JTAG_RESET:
-			DEBUG_JTAG_IO("reset trst: %i srst %i",
-				cmd->cmd.reset->trst, cmd->cmd.reset->srst);
-
-			/* flush buffers, so we can reset */
-			buspirate_tap_execute();
-
-			if (cmd->cmd.reset->trst == 1)
-				tap_set_state(TAP_RESET);
-			buspirate_reset(cmd->cmd.reset->trst,
-					cmd->cmd.reset->srst);
-			break;
 		case JTAG_SLEEP:
-			DEBUG_JTAG_IO("sleep %i", cmd->cmd.sleep->us);
+			LOG_DEBUG_IO("sleep %i", cmd->cmd.sleep->us);
 			buspirate_tap_execute();
 			jtag_sleep(cmd->cmd.sleep->us);
 				break;
 		case JTAG_STABLECLOCKS:
-			DEBUG_JTAG_IO("stable clock %i cycles", cmd->cmd.stableclocks->num_cycles);
+			LOG_DEBUG_IO("stable clock %i cycles", cmd->cmd.stableclocks->num_cycles);
 			buspirate_stableclocks(cmd->cmd.stableclocks->num_cycles);
 				break;
 		default:
@@ -548,14 +536,21 @@ static const struct swd_driver buspirate_swd = {
 
 static const char * const buspirate_transports[] = { "jtag", "swd", NULL };
 
-struct jtag_interface buspirate_interface = {
-	.name = "buspirate",
+static struct jtag_interface buspirate_interface = {
 	.execute_queue = buspirate_execute_queue,
-	.commands = buspirate_command_handlers,
+};
+
+struct adapter_driver buspirate_adapter_driver = {
+	.name = "buspirate",
 	.transports = buspirate_transports,
-	.swd = &buspirate_swd,
+	.commands = buspirate_command_handlers,
+
 	.init = buspirate_init,
-	.quit = buspirate_quit
+	.quit = buspirate_quit,
+	.reset = buspirate_reset,
+
+	.jtag_ops = &buspirate_interface,
+	.swd_ops = &buspirate_swd,
 };
 
 /*************** jtag execute commands **********************/
@@ -624,7 +619,7 @@ static void buspirate_runtest(int num_cycles)
 	for (i = 0; i < num_cycles; i++)
 		buspirate_tap_append(0, 0);
 
-	DEBUG_JTAG_IO("runtest: cur_state %s end_state %s",
+	LOG_DEBUG_IO("runtest: cur_state %s end_state %s",
 			tap_state_name(tap_get_state()),
 			tap_state_name(tap_get_end_state()));
 
@@ -860,7 +855,7 @@ static void buspirate_tap_append_scan(int length, uint8_t *buffer,
 /*************** wrapper functions *********************/
 
 /* (1) assert or (0) deassert reset lines */
-static void buspirate_reset(int trst, int srst)
+static int buspirate_reset(int trst, int srst)
 {
 	LOG_DEBUG("trst: %i, srst: %i", trst, srst);
 
@@ -873,6 +868,8 @@ static void buspirate_reset(int trst, int srst)
 		buspirate_set_feature(buspirate_fd, FEATURE_SRST, ACTION_DISABLE);
 	else
 		buspirate_set_feature(buspirate_fd, FEATURE_SRST, ACTION_ENABLE);
+
+	return ERROR_OK;
 }
 
 static void buspirate_set_feature(int fd, char feat, char action)
@@ -1312,7 +1309,7 @@ static int buspirate_swd_switch_seq(enum swd_special_seq seq)
 {
 	const uint8_t *sequence;
 	int sequence_len;
-	uint8_t tmp[64];
+	uint32_t no_bytes, sequence_offset;
 
 	switch (seq) {
 	case LINE_RESET:
@@ -1335,15 +1332,24 @@ static int buspirate_swd_switch_seq(enum swd_special_seq seq)
 		return ERROR_FAIL;
 	}
 
-	/* FIXME: all above sequences fit into one pirate command for now
-	 *        but it may cause trouble later
-	 */
+	no_bytes = sequence_len;
+	sequence_offset = 0;
 
-	tmp[0] = 0x10 + ((sequence_len - 1) & 0x0F);
-	memcpy(tmp + 1, sequence, sequence_len);
+	while (no_bytes) {
+		uint8_t tmp[17];
+		uint32_t to_send;
 
-	buspirate_serial_write(buspirate_fd, tmp, sequence_len + 1);
-	buspirate_serial_read(buspirate_fd, tmp, sequence_len + 1);
+		to_send = no_bytes > 16 ? 16 : no_bytes;
+
+		tmp[0] = 0x10 + ((to_send - 1) & 0x0F);
+		memcpy(tmp + 1, &sequence[sequence_offset], to_send);
+
+		buspirate_serial_write(buspirate_fd, tmp, to_send + 1);
+		buspirate_serial_read(buspirate_fd, tmp, to_send + 1);
+
+		no_bytes -= to_send;
+		sequence_offset += to_send;
+	}
 
 	return ERROR_OK;
 }

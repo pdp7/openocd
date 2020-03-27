@@ -259,7 +259,7 @@ static const struct psoc6_regs psoc62m_regs = {
 	.mem_base_sflash = {0x16000000, 0,},
 	.mem_base_efuses = {0x90700000, 0,},
 };
-
+#define SFLASH_NUM_REGIONS (sizeof(safe_sflash_regions) / sizeof(safe_sflash_regions[0]))
 /* Traveo-II registers */
 static const struct psoc6_regs traveo2_regs = {
 	.variant = MXS40_VARIANT_TRAVEO_II,

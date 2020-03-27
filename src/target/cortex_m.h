@@ -38,6 +38,12 @@
 #define ITM_LAR_KEY	0xC5ACCE55
 
 #define CPUID		0xE000ED00
+
+#define ARM_CPUID_PARTNO_MASK	0xFFF0
+
+#define CORTEX_M23_PARTNO	0xD200
+#define CORTEX_M33_PARTNO	0xD210
+
 /* Debug Control Block */
 #define DCB_DHCSR	0xE000EDF0
 #define DCB_DCRSR	0xE000EDF4
@@ -52,6 +58,9 @@
 #define DWT_COMP0	0xE0001020
 #define DWT_MASK0	0xE0001024
 #define DWT_FUNCTION0	0xE0001028
+#define DWT_DEVARCH		0xE0001FBC
+
+#define DWT_DEVARCH_ARMV8M	0x101A02
 
 #define FP_CTRL		0xE0002000
 #define FP_REMAP	0xE0002004
@@ -76,6 +85,9 @@
 #define TPIU_FFSR	0xE0040300
 #define TPIU_FFCR	0xE0040304
 #define TPIU_FSCR	0xE0040308
+
+/* Maximum SWO prescaler value. */
+#define TPIU_ACPR_MAX_SWOSCALER	0x1fff
 
 /* DCB_DHCSR bit and field definitions */
 #define DBGKEY		(0xA05F << 16)
@@ -127,6 +139,7 @@
 #define DFSR_BKPT			2
 #define DFSR_DWTTRAP		4
 #define DFSR_VCATCH			8
+#define DFSR_EXTERNAL		16
 
 #define FPCR_CODE 0
 #define FPCR_LITERAL 1
@@ -180,6 +193,7 @@ struct cortex_m_common {
 	/* Data Watchpoint and Trace (DWT) */
 	int dwt_num_comp;
 	int dwt_comp_available;
+	uint32_t dwt_devarch;
 	struct cortex_m_dwt_comparator *dwt_comparator_list;
 	struct reg_cache *dwt_cache;
 

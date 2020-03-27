@@ -112,15 +112,34 @@
 #define CSW_ADDRINC_PACKED  (2UL << 4)
 #define CSW_DEVICE_EN       (1UL << 6)
 #define CSW_TRIN_PROG       (1UL << 7)
-/* all fields in bits 12 and above are implementation-defined! */
+
+/* All fields in bits 12 and above are implementation-defined
+ * Defaults for AHB/AXI in "Standard Memory Access Port Definitions" from ADI
+ * Some bits are shared between buses
+ */
 #define CSW_SPIDEN          (1UL << 23)
-#define CSW_HPROT1          (1UL << 25) /* AHB: Privileged */
-#define CSW_MASTER_DEBUG    (1UL << 29) /* AHB: set HMASTER signals to AHB-AP ID */
-#define CSW_SPROT           (1UL << 30)
 #define CSW_DBGSWENABLE     (1UL << 31)
 
-/* initial value of csw_default used for MEM-AP transfers */
-#define CSW_DEFAULT			(CSW_HPROT1 | CSW_MASTER_DEBUG | CSW_DBGSWENABLE)
+/* AHB: Privileged */
+#define CSW_AHB_HPROT1          (1UL << 25)
+/* AHB: set HMASTER signals to AHB-AP ID */
+#define CSW_AHB_MASTER_DEBUG    (1UL << 29)
+/* AHB5: non-secure access via HNONSEC
+ * AHB3: SBO, UNPREDICTABLE if zero */
+#define CSW_AHB_SPROT           (1UL << 30)
+/* AHB: initial value of csw_default */
+#define CSW_AHB_DEFAULT         (CSW_AHB_HPROT1 | CSW_AHB_MASTER_DEBUG | CSW_DBGSWENABLE)
+
+/* AXI: Privileged */
+#define CSW_AXI_ARPROT0_PRIV    (1UL << 28)
+/* AXI: Non-secure */
+#define CSW_AXI_ARPROT1_NONSEC  (1UL << 29)
+/* AXI: initial value of csw_default */
+#define CSW_AXI_DEFAULT         (CSW_AXI_ARPROT0_PRIV | CSW_AXI_ARPROT1_NONSEC | CSW_DBGSWENABLE)
+
+/* APB: initial value of csw_default */
+#define CSW_APB_DEFAULT         (CSW_DBGSWENABLE)
+
 
 /* Fields of the MEM-AP's IDR register */
 #define IDR_REV     (0xFUL << 28)
@@ -138,6 +157,15 @@
 
 #define DP_APSEL_MAX        (255)
 #define DP_APSEL_INVALID    (-1)
+
+/* FIXME: not SWD specific; should be renamed, e.g. adiv5_special_seq */
+enum swd_special_seq {
+	LINE_RESET,
+	JTAG_TO_SWD,
+	SWD_TO_JTAG,
+	SWD_TO_DORMANT,
+	DORMANT_TO_SWD,
+};
 
 /**
  * This represents an ARM Debug Interface (v5) Access Port (AP).
@@ -252,6 +280,12 @@ struct adiv5_dap {
 	bool ti_be_32_quirks;
 
 	/**
+	 * STLINK adapter need to know if last AP operation was read or write, and
+	 * in case of write has to flush it with a dummy read from DP_RDBUFF
+	 */
+	bool stlink_flush_ap_write;
+
+	/**
 	 * Signals that an attempt to reestablish communication afresh
 	 * should be performed before the next access.
 	 */
@@ -272,6 +306,10 @@ struct adiv5_dap {
 struct dap_ops {
 	/** connect operation for SWD */
 	int (*connect)(struct adiv5_dap *dap);
+
+	/** send a sequence to the DAP */
+	int (*send_sequence)(struct adiv5_dap *dap, enum swd_special_seq seq);
+
 	/** DP register read. */
 	int (*queue_dp_read)(struct adiv5_dap *dap, unsigned reg,
 			uint32_t *data);
@@ -313,10 +351,26 @@ enum ap_class {
  */
 enum ap_type {
 	AP_TYPE_JTAG_AP = 0x0,  /* JTAG-AP - JTAG master for controlling other JTAG devices */
-	AP_TYPE_AHB_AP  = 0x1,  /* AHB Memory-AP */
+	AP_TYPE_AHB3_AP = 0x1,  /* AHB3 Memory-AP */
 	AP_TYPE_APB_AP  = 0x2,  /* APB Memory-AP */
 	AP_TYPE_AXI_AP  = 0x4,  /* AXI Memory-AP */
+	AP_TYPE_AHB5_AP = 0x5,  /* AHB5 Memory-AP. */
 };
+
+/**
+ * Send an adi-v5 sequence to the DAP.
+ *
+ * @param dap The DAP used for reading.
+ * @param seq The sequence to send.
+ *
+ * @return ERROR_OK for success, else a fault code.
+ */
+static inline int dap_send_sequence(struct adiv5_dap *dap,
+		enum swd_special_seq seq)
+{
+	assert(dap->ops != NULL);
+	return dap->ops->send_sequence(dap, seq);
+}
 
 /**
  * Queue a DP register read.
@@ -532,7 +586,7 @@ extern const struct command_registration dap_instance_commands[];
 struct arm_dap_object;
 extern struct adiv5_dap *dap_instance_by_jim_obj(Jim_Interp *interp, Jim_Obj *o);
 extern struct adiv5_dap *adiv5_get_dap(struct arm_dap_object *obj);
-extern int dap_info_command(struct command_context *cmd_ctx,
+extern int dap_info_command(struct command_invocation *cmd,
 					 struct adiv5_ap *ap);
 extern int dap_register_commands(struct command_context *cmd_ctx);
 extern const char *adiv5_dap_name(struct adiv5_dap *self);

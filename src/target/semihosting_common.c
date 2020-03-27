@@ -944,6 +944,8 @@ int semihosting_common(struct target *target)
 					uint8_t *fn1 = malloc(len1+1);
 					uint8_t *fn2 = malloc(len2+1);
 					if (!fn1 || !fn2) {
+						free(fn1);
+						free(fn2);
 						semihosting->result = -1;
 						semihosting->sys_errno = ENOMEM;
 					} else {
@@ -1470,7 +1472,7 @@ __COMMAND_HANDLER(handle_common_semihosting_command)
 
 	struct semihosting *semihosting = target->semihosting;
 	if (!semihosting) {
-		command_print(CMD_CTX, "semihosting not supported for current target");
+		command_print(CMD, "semihosting not supported for current target");
 		return ERROR_FAIL;
 	}
 
@@ -1493,7 +1495,7 @@ __COMMAND_HANDLER(handle_common_semihosting_command)
 		semihosting->is_active = is_active;
 	}
 
-	command_print(CMD_CTX, "semihosting is %s",
+	command_print(CMD, "semihosting is %s",
 		semihosting->is_active
 		? "enabled" : "disabled");
 
@@ -1512,19 +1514,19 @@ __COMMAND_HANDLER(handle_common_semihosting_fileio_command)
 
 	struct semihosting *semihosting = target->semihosting;
 	if (!semihosting) {
-		command_print(CMD_CTX, "semihosting not supported for current target");
+		command_print(CMD, "semihosting not supported for current target");
 		return ERROR_FAIL;
 	}
 
 	if (!semihosting->is_active) {
-		command_print(CMD_CTX, "semihosting not yet enabled for current target");
+		command_print(CMD, "semihosting not yet enabled for current target");
 		return ERROR_FAIL;
 	}
 
 	if (CMD_ARGC > 0)
 		COMMAND_PARSE_ENABLE(CMD_ARGV[0], semihosting->is_fileio);
 
-	command_print(CMD_CTX, "semihosting fileio is %s",
+	command_print(CMD, "semihosting fileio is %s",
 		semihosting->is_fileio
 		? "enabled" : "disabled");
 
@@ -1543,7 +1545,7 @@ __COMMAND_HANDLER(handle_common_semihosting_cmdline)
 
 	struct semihosting *semihosting = target->semihosting;
 	if (!semihosting) {
-		command_print(CMD_CTX, "semihosting not supported for current target");
+		command_print(CMD, "semihosting not supported for current target");
 		return ERROR_FAIL;
 	}
 
@@ -1558,7 +1560,7 @@ __COMMAND_HANDLER(handle_common_semihosting_cmdline)
 		semihosting->cmdline = cmdline;
 	}
 
-	command_print(CMD_CTX, "semihosting command line is [%s]",
+	command_print(CMD, "semihosting command line is [%s]",
 		semihosting->cmdline);
 
 	return ERROR_OK;
@@ -1575,19 +1577,19 @@ __COMMAND_HANDLER(handle_common_semihosting_resumable_exit_command)
 
 	struct semihosting *semihosting = target->semihosting;
 	if (!semihosting) {
-		command_print(CMD_CTX, "semihosting not supported for current target");
+		command_print(CMD, "semihosting not supported for current target");
 		return ERROR_FAIL;
 	}
 
 	if (!semihosting->is_active) {
-		command_print(CMD_CTX, "semihosting not yet enabled for current target");
+		command_print(CMD, "semihosting not yet enabled for current target");
 		return ERROR_FAIL;
 	}
 
 	if (CMD_ARGC > 0)
 		COMMAND_PARSE_ENABLE(CMD_ARGV[0], semihosting->has_resumable_exit);
 
-	command_print(CMD_CTX, "semihosting resumable exit is %s",
+	command_print(CMD, "semihosting resumable exit is %s",
 		semihosting->has_resumable_exit
 		? "enabled" : "disabled");
 

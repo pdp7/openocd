@@ -99,11 +99,11 @@ static int arm946e_target_create(struct target *target, Jim_Interp *interp)
 	return ERROR_OK;
 }
 
-static int arm946e_verify_pointer(struct command_context *cmd_ctx,
+static int arm946e_verify_pointer(struct command_invocation *cmd,
 	struct arm946e_common *arm946e)
 {
 	if (arm946e->common_magic != ARM946E_COMMON_MAGIC) {
-		command_print(cmd_ctx, "target is not an ARM946");
+		command_print(cmd, "target is not an ARM946");
 		return ERROR_TARGET_INVALID;
 	}
 	return ERROR_OK;
@@ -267,7 +267,11 @@ uint32_t arm946e_invalidate_whole_dcache(struct target *target)
 
 			/* Read dtag */
 			uint32_t dtag;
-			arm946e_read_cp15(target, 0x16, (uint32_t *) &dtag);
+			retval = arm946e_read_cp15(target, 0x16, &dtag);
+			if (retval != ERROR_OK) {
+				LOG_DEBUG("ERROR reading dtag");
+				return retval;
+			}
 
 			/* Check cache line VALID bit */
 			if (!(dtag >> 4 & 0x1))
@@ -321,7 +325,7 @@ int arm946e_post_debug_entry(struct target *target)
 
 	/* See if CACHES are enabled, and save that info
 	 * in the context bits, so that arm946e_pre_restore_context() can use them */
-	arm946e_read_cp15(target, CP15_CTL, (uint32_t *) &ctr_reg);
+	arm946e_read_cp15(target, CP15_CTL, &ctr_reg);
 
 	/* Save control reg in the context */
 	arm946e->cp15_control_reg = ctr_reg;
@@ -362,7 +366,7 @@ void arm946e_pre_restore_context(struct target *target)
 	if (arm946e_preserve_cache) {
 		struct arm946e_common *arm946e = target_to_arm946(target);
 		/* Get the contents of the CTR reg */
-		arm946e_read_cp15(target, CP15_CTL, (uint32_t *) &ctr_reg);
+		arm946e_read_cp15(target, CP15_CTL, &ctr_reg);
 
 		/**
 		 * Read-modify-write CP15 control
@@ -410,7 +414,11 @@ uint32_t arm946e_invalidate_dcache(struct target *target, uint32_t address,
 			}
 
 			/* Read dtag */
-			arm946e_read_cp15(target, 0x16, (uint32_t *) &dtag);
+			retval = arm946e_read_cp15(target, 0x16, &dtag);
+			if (retval != ERROR_OK) {
+				LOG_DEBUG("ERROR reading dtag");
+				return retval;
+			}
 
 			/* Check cache line VALID bit */
 			if (!(dtag >> 4 & 0x1))
@@ -463,7 +471,11 @@ uint32_t arm946e_invalidate_icache(struct target *target, uint32_t address,
 			}
 
 			/* Read itag */
-			arm946e_read_cp15(target, 0x17, (uint32_t *) &itag);
+			retval = arm946e_read_cp15(target, 0x17, &itag);
+			if (retval != ERROR_OK) {
+				LOG_DEBUG("ERROR reading itag");
+				return retval;
+			}
 
 			/* Check cache line VALID bit */
 			if (!(itag >> 4 & 0x1))
@@ -549,70 +561,54 @@ int arm946e_read_memory(struct target *target, target_addr_t address,
 	return ERROR_OK;
 }
 
-static int jim_arm946e_cp15(Jim_Interp *interp, int argc, Jim_Obj * const *argv)
+COMMAND_HANDLER(arm946e_handle_cp15)
 {
 	/* one or two arguments, access a single register (write if second argument is given) */
-	if (argc < 2 || argc > 3) {
-		Jim_WrongNumArgs(interp, 1, argv, "addr [value]");
-		return JIM_ERR;
-	}
+	if (CMD_ARGC < 1 || CMD_ARGC > 2)
+		return ERROR_COMMAND_SYNTAX_ERROR;
 
-	struct command_context *cmd_ctx = current_command_context(interp);
-	assert(cmd_ctx != NULL);
-
-	struct target *target = get_current_target(cmd_ctx);
-	if (target == NULL) {
-		LOG_ERROR("arm946e: no current target");
-		return JIM_ERR;
-	}
+	struct target *target = get_current_target(CMD_CTX);
 
 	struct arm946e_common *arm946e = target_to_arm946(target);
-	int retval = arm946e_verify_pointer(cmd_ctx, arm946e);
+	int retval = arm946e_verify_pointer(CMD, arm946e);
 	if (retval != ERROR_OK)
-		return JIM_ERR;
-
-	if (target->state != TARGET_HALTED) {
-		command_print(cmd_ctx, "target %s must be stopped for \"cp15\" command", target_name(target));
-		return JIM_ERR;
-	}
-
-	long l;
-	uint32_t address;
-	retval = Jim_GetLong(interp, argv[1], &l);
-	address = l;
-	if (JIM_OK != retval)
 		return retval;
 
-	if (argc == 2) {
+	if (target->state != TARGET_HALTED) {
+		command_print(CMD, "target must be stopped for \"%s\" command", CMD_NAME);
+		return ERROR_TARGET_NOT_HALTED;
+	}
+
+	uint32_t address;
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], address);
+
+	if (CMD_ARGC == 1) {
 		uint32_t value;
 		retval = arm946e_read_cp15(target, address, &value);
 		if (retval != ERROR_OK) {
-			command_print(cmd_ctx, "%s cp15 reg %" PRIi32 " access failed", target_name(target), address);
-			return JIM_ERR;
+			command_print(CMD, "%s cp15 reg %" PRIi32 " access failed", target_name(target), address);
+			return retval;
 		}
 		retval = jtag_execute_queue();
 		if (retval != ERROR_OK)
-			return JIM_ERR;
-		char buf[20];
-		sprintf(buf, "0x%08" PRIx32, value);
-		/* Return value in hex format */
-		Jim_SetResultString(interp, buf, -1);
-	} else if (argc == 3) {
-		uint32_t value;
-		retval = Jim_GetLong(interp, argv[2], &l);
-		value = l;
-		if (JIM_OK != retval)
 			return retval;
+
+		/* Return value in hex format */
+		command_print(CMD, "0x%08" PRIx32, value);
+	} else if (CMD_ARGC == 2) {
+		uint32_t value;
+		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], value);
+
 		retval = arm946e_write_cp15(target, address, value);
 		if (retval != ERROR_OK) {
-			command_print(cmd_ctx, "%s cp15 reg %" PRIi32 " access failed", target_name(target), address);
-			return JIM_ERR;
+			command_print(CMD, "%s cp15 reg %" PRIi32 " access failed", target_name(target), address);
+			return retval;
 		}
 		if (address == CP15_CTL)
 			arm946e_update_cp15_caches(target, value);
 	}
 
-	return JIM_OK;
+	return ERROR_OK;
 }
 
 COMMAND_HANDLER(arm946e_handle_idcache)
@@ -624,12 +620,12 @@ COMMAND_HANDLER(arm946e_handle_idcache)
 	struct target *target = get_current_target(CMD_CTX);
 	struct arm946e_common *arm946e = target_to_arm946(target);
 
-	retval = arm946e_verify_pointer(CMD_CTX, arm946e);
+	retval = arm946e_verify_pointer(CMD, arm946e);
 	if (retval != ERROR_OK)
 		return retval;
 
 	if (target->state != TARGET_HALTED) {
-		command_print(CMD_CTX, "target must be stopped for \"%s\" command", CMD_NAME);
+		command_print(CMD, "target must be stopped for \"%s\" command", CMD_NAME);
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -639,9 +635,9 @@ COMMAND_HANDLER(arm946e_handle_idcache)
 		bool  bena = ((arm946e->cp15_control_reg & (icache ? CP15_CTL_ICACHE : CP15_CTL_DCACHE)) != 0)
 			  && (arm946e->cp15_control_reg & 0x1);
 		if (csize == 0)
-			command_print(CMD_CTX, "%s-cache absent", icache ? "I" : "D");
+			command_print(CMD, "%s-cache absent", icache ? "I" : "D");
 		else
-			command_print(CMD_CTX, "%s-cache size: %" PRIu32 "K, %s",
+			command_print(CMD, "%s-cache size: %" PRIu32 "K, %s",
 				      icache ? "I" : "D", csize, bena ? "enabled" : "disabled");
 		return ERROR_OK;
 	}
@@ -659,7 +655,7 @@ COMMAND_HANDLER(arm946e_handle_idcache)
 
 	/* Do not invalidate or change state, if cache is absent */
 	if (csize == 0) {
-		command_print(CMD_CTX, "%s-cache absent, '%s' operation undefined", icache ? "I" : "D", CMD_ARGV[0]);
+		command_print(CMD, "%s-cache absent, '%s' operation undefined", icache ? "I" : "D", CMD_ARGV[0]);
 		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
 	}
 
@@ -703,7 +699,7 @@ COMMAND_HANDLER(arm946e_handle_idcache)
 static const struct command_registration arm946e_exec_command_handlers[] = {
 	{
 		.name = "cp15",
-		.jim_handler = jim_arm946e_cp15,
+		.handler = arm946e_handle_cp15,
 		.mode = COMMAND_EXEC,
 		.usage = "regnum [value]",
 		.help = "read/modify cp15 register",
