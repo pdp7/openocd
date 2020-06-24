@@ -15,6 +15,8 @@ From the [release page](https://github.com/cypresssemiconductorco/openocd/releas
 
 If you want to update ModusToolbox to use this release, replace the contents of the  */ModusToolbox/tools_2.x/openocd* folder with the downloaded package from the release page. Otherwise just put the tool in any convenient location. 
 
+On the Catalina version of macOS, you may see a dialog what Apple cannot check this package for malicious  software. If this happens, please follow [instructions](https://support.apple.com/guide/mac-help/open-an-app-by-overriding-security-settings-mh40617/10.15/mac/10.15) from Apple.
+
 Cypress is  working at merging these modifications into the official OpenOCD. In the mean time, these modifications are available in this repository only.
 
 This software component is licensed under GNU General Public License v2
