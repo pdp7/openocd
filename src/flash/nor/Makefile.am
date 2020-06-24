@@ -82,6 +82,7 @@ NOR_DRIVERS = \
 NORHEADERS = \
 	%D%/core.h \
 	%D%/cc3220sf.h \
+	%D%/bluenrg-x.h \
 	%D%/cc26xx.h \
 	%D%/cfi.h \
 	%D%/cmspi.h \
@@ -91,6 +92,7 @@ NORHEADERS = \
 	%D%/ocl.h \
 	%D%/sfdp.h \
 	%D%/spi.h \
+	%D%/stm32l4x.h \
 	%D%/msp432.h
 
 include %D%/mxs40/Makefile.am

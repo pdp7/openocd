@@ -1233,7 +1233,7 @@ static int jtag_examine_chain(void)
 	/* Add room for end-of-chain marker. */
 	max_taps++;
 
-	uint8_t *idcode_buffer = malloc(max_taps * 4);
+	uint8_t *idcode_buffer = calloc(4, max_taps);
 	if (idcode_buffer == NULL)
 		return ERROR_JTAG_INIT_FAILED;
 
@@ -2021,7 +2021,8 @@ int adapter_resets(int trst, int srst)
 		/* adapters without trst signal will eventually use tlr sequence */
 		jtag_add_reset(trst, srst);
 		return ERROR_OK;
-	} else if (transport_is_swd() || transport_is_hla()) {
+	} else if (transport_is_swd() || transport_is_hla() ||
+			   transport_is_dapdirect_swd() || transport_is_dapdirect_jtag()) {
 		if (trst == TRST_ASSERT) {
 			LOG_ERROR("transport %s has no trst signal",
 				get_current_transport()->name);

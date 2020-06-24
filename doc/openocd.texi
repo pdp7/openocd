@@ -537,15 +537,25 @@ debuggers to ARM Cortex based targets @url{http://www.keil.com/support/man/docs/
 
 @item @b{TI XDS110 Debug Probe}
 @* The XDS110 is included as the embedded debug probe on many Texas Instruments
-LaunchPad evaluation boards.
-@* The XDS110 is also available as a stand-alone USB debug probe. The XDS110
-stand-alone probe has the additional ability to supply voltage to the target
-board via its AUX FUNCTIONS port. Use the
-@command{xds110_supply_voltage <millivolts>} command to set the voltage. 0 turns
-off the supply. Otherwise, the supply can be set to any value in the range 1800
-to 3600 millivolts.
-@* Link: @url{http://processors.wiki.ti.com/index.php/XDS110}
-@* Link: @url{http://processors.wiki.ti.com/index.php/XDS_Emulation_Software_Package#XDS110_Support_Utilities}
+LaunchPad evaluation boards. The XDS110 is also available as a stand-alone USB
+debug probe with the added capability to supply power to the target board. The
+following commands are supported by the XDS110 driver:
+@*@deffn {Config Command} {xds110 serial} serial_string
+Specifies the serial number of which XDS110 probe to use. Otherwise, the first
+XDS110 found will be used.
+@end deffn
+@*@deffn {Config Command} {xds110 supply} voltage_in_millivolts
+Available only on the XDS110 stand-alone probe. Sets the voltage level of the
+XDS110 power supply. A value of 0 leaves the supply off. Otherwise, the supply
+can be set to any value in the range 1800 to 3600 millivolts.
+@end deffn
+@*@deffn {Command} {xds110 info}
+Displays information about the connected XDS110 debug probe (e.g. firmware
+version).
+@end deffn
+@* Further information can be found at the following sites:
+@* Link: @url{https://software-dl.ti.com/ccs/esd/documents/xdsdebugprobes/emu_xds110.html}
+@* Link: @url{https://software-dl.ti.com/ccs/esd/documents/xdsdebugprobes/emu_xds_software_package_download.html#xds110-support-utilities}
 @end itemize
 
 @section IBM PC Parallel Printer Port Based
@@ -4820,6 +4830,8 @@ The following target events are defined:
 @* Before target examine is called.
 @item @b{examine-end}
 @* After target examine is called with no errors.
+@item @b{examine-fail}
+@* After target examine fails.
 @item @b{gdb-attach}
 @* When GDB connects. Issued before any GDB communication with the target
 starts. GDB expects the target is halted during attachment.
@@ -6044,7 +6056,7 @@ The AVR 8-bit microcontrollers from Atmel integrate flash memory.
 @end deffn
 
 @deffn {Flash Driver} bluenrg-x
-STMicroelectronics BlueNRG-1 and BlueNRG-2 Bluetooth low energy wireless system-on-chip. They include ARM Cortex-M0 core and internal flash memory.
+STMicroelectronics BlueNRG-1, BlueNRG-2 and BlueNRG-LP Bluetooth low energy wireless system-on-chip. They include ARM Cortex-M0/M0+ core and internal flash memory.
 The driver automatically recognizes these chips using
 the chip identification registers, and autoconfigures itself.
 
@@ -6056,11 +6068,7 @@ Note that when users ask to erase all the sectors of the flash, a mass erase com
 each single sector one by one.
 
 @example
-flash erase_sector 0 0 79 # It will perform a mass erase on BlueNRG-1
-@end example
-
-@example
-flash erase_sector 0 0 127 # It will perform a mass erase on BlueNRG-2
+flash erase_sector 0 0 last # It will perform a mass erase
 @end example
 
 Triggering a mass erase is also useful when users want to disable readout protection.
@@ -6209,7 +6217,8 @@ Used in kinetis 'fcf_source protection' mode only.
 @end deffn
 
 @deffn Command {kinetis mdm check_security}
-Checks status of device security lock. Used internally in examine-end event.
+Checks status of device security lock. Used internally in examine-end
+and examine-fail event.
 @end deffn
 
 @deffn Command {kinetis mdm halt}
@@ -6517,14 +6526,14 @@ if @{ [info exists IMEMORY] && [string equal $IMEMORY true] @} @{
 All versions of the SimpleLink MSP432 microcontrollers from Texas
 Instruments include internal flash. The msp432 flash driver automatically
 recognizes the specific version's flash parameters and autoconfigures itself.
-Main program flash (starting at address 0) is flash bank 0. Information flash
-region on MSP432P4 versions (starting at address 0x200000) is flash bank 1.
+Main program flash starts at address 0. The information flash region on
+MSP432P4 versions starts at address 0x200000.
 
 @example
 flash bank $_FLASHNAME msp432 0 0 0 0 $_TARGETNAME
 @end example
 
-@deffn Command {msp432 mass_erase} [main|all]
+@deffn Command {msp432 mass_erase} bank_id [main|all]
 Performs a complete erase of flash. By default, @command{mass_erase} will erase
 only the main program flash.
 
@@ -6533,7 +6542,7 @@ main program and information flash regions. To also erase the BSL in information
 flash, the user must first use the @command{bsl} command.
 @end deffn
 
-@deffn Command {msp432 bsl} [unlock|lock]
+@deffn Command {msp432 bsl} bank_id [unlock|lock]
 On MSP432P4 versions, @command{bsl} unlocks and locks the bootstrap loader (BSL)
 region in information flash so that flash commands can erase or write the BSL.
 Leave the BSL locked to prevent accidentally corrupting the bootstrap loader.
@@ -7107,8 +7116,10 @@ The @var{num} parameter is a value shown by @command{flash banks}.
 @end deffn
 
 @deffn {Flash Driver} stm32l4x
-All members of the STM32L4 and STM32WB microcontroller families from STMicroelectronics
-include internal flash and use ARM Cortex-M4 cores.
+All members of the STM32L4, STM32L4+, STM32WB, STM32WL and STM32G4
+microcontroller families from STMicroelectronics include internal flash
+and use ARM Cortex-M4 cores.
+Additionally this driver supports STM32G0 family with ARM Cortex-M0+ core.
 The driver automatically recognizes a number of these chips using
 the chip identification register, and autoconfigures itself.
 
@@ -7118,7 +7129,8 @@ flash bank $_FLASHNAME stm32l4x 0 0 0 0 $_TARGETNAME
 
 Note that some devices have been found that have a flash size register that contains
 an invalid value, to workaround this issue you can override the probed value used by
-the flash driver.
+the flash driver. However, specifying a wrong value might lead to a completely
+wrong flash layout, so this feature must be used carefully.
 
 @example
 flash bank $_FLASHNAME stm32l4x 0x08000000 0x40000 0 0 $_TARGETNAME
@@ -7175,7 +7187,7 @@ This will effectively write protect all sectors in flash bank 1.
 @end deffn
 
 @deffn Command {stm32l4x option_load} num
-Forces a re-load of the option byte registers. Will cause a reset of the device.
+Forces a re-load of the option byte registers. Will cause a system reset of the device.
 The @var{num} parameter is a value shown by @command{flash banks}.
 @end deffn
 @end deffn
@@ -8375,8 +8387,8 @@ in which case it will be a hardware breakpoint.
 for similar mechanisms that do not consume hardware breakpoints.)
 @end deffn
 
-@deffn Command {rbp} address
-Remove the breakpoint at @var{address}.
+@deffn Command {rbp} @option{all} | address
+Remove the breakpoint at @var{address} or all breakpoints.
 @end deffn
 
 @deffn Command {rwp} address
