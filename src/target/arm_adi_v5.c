@@ -654,6 +654,11 @@ int dap_dp_init(struct adiv5_dap *dap)
 
 	dap_invalidate_cache(dap);
 
+	/* JTAG State Machine may be in unpredictable state e.g. after Reset
+	 * Move to TLR unconditionally here */
+	if(transport_is_jtag())
+		jtag_add_tlr();
+
 	/*
 	 * Early initialize dap->dp_ctrl_stat.
 	 * In jtag mode only, if the following atomic reads fail and set the

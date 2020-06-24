@@ -95,6 +95,7 @@
 
 /* register locations */
 #define PSOC4_SFLASH_MACRO0             0x0FFFF000
+#define PSOC4_SFLASH_MACRO0_v2          0x0FFFE000
 
 #define PSOC4_CPUSS_BASE_LEGACY         0x40000000
 #define PSOC4_CPUSS_SYSREQ_LEGACY       PSOC4_CPUSS_BASE_LEGACY + 0x04
@@ -252,6 +253,7 @@ const struct psoc4_chip_family psoc4_families[] = {
 	{ 0xAE, "PSoC 4xx8 BLE",                        .flags = PSOC4_FLAG_IMO_NOT_REQUIRED, .spcif_ver = spcif_v2 },
 	{ 0xB5, "PSoC 4100S Plus",                      .flags = 0, .spcif_ver = spcif_v3 },
 	{ 0xB8, "PSoC 4100S Plus/PSoC 4500",            .flags = 0, .spcif_ver = spcif_v3 },
+	{ 0xBE, "PSoC 4100S Max",                       .flags = 0, .spcif_ver = spcif_v3 },
 	{ 0,    "Unknown",                              .flags = 0, .spcif_ver = spcif_unknown }
 };
 
@@ -268,13 +270,20 @@ struct psoc4_flash_bank {
 	bool imo_required;
 	uint32_t cpuss_sysreq_addr;
 	uint32_t cpuss_sysarg_addr;
+	uint32_t sflash_base;
 	struct spcif_regs *spcif;
 	const struct sflash_type *sflash_descr;
 };
 
+static bool is_sflash_base_v2(uint16_t family_id)
+{
+	return family_id == 0xBE;
+}
+
 static bool is_sflash_bank(struct flash_bank *bank)
 {
-	return (bank->base & PSOC4_SFLASH_MACRO0) == PSOC4_SFLASH_MACRO0;
+	return 	(bank->base & PSOC4_SFLASH_MACRO0) == PSOC4_SFLASH_MACRO0 || 
+			(bank->base & PSOC4_SFLASH_MACRO0_v2) == PSOC4_SFLASH_MACRO0_v2;
 }
 
 static bool is_flash_prot_bank(struct flash_bank *bank)
@@ -662,16 +671,25 @@ cleanup_algo:
  * @param protection pointer to variable, will be populated with protection state
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
  *************************************************************************************************/
-static int psoc4_get_silicon_id(struct flash_bank *bank, uint32_t *silicon_id, uint16_t *family_id, uint8_t *protection)
+static int psoc4_get_silicon_id(struct flash_bank *bank, bool no_algo, uint32_t *silicon_id, uint16_t *family_id, uint8_t *protection)
 {
 	struct target *target = bank->target;
 	struct psoc4_flash_bank *psoc4_info = bank->driver_priv;
 
 	uint32_t part0, part1;
 
-	int retval = psoc4_sysreq(bank, PSOC4_CMD_GET_SILICON_ID, 0, NULL, 0, &part0);
-	if (retval != ERROR_OK)
-		return retval;
+	int retval;
+	if (no_algo) {
+		retval = psoc4_sysreq_mem_ap(bank, PSOC4_CMD_GET_SILICON_ID, 0, NULL, 0, &part0);
+		if (retval != ERROR_OK)
+			return retval;
+	}
+	else {
+		retval = psoc4_sysreq(bank, PSOC4_CMD_GET_SILICON_ID, 0, NULL, 0, &part0);
+		if (retval != ERROR_OK)
+			return retval;
+	}
+	
 
 	if ((part0 & PSOC4_SROM_STATUS_MASK) != PSOC4_SROM_STATUS_SUCCEEDED) {
 		LOG_ERROR("sysreq error - \"%s\"", psoc4_decode_sysreq_error(part0));
@@ -787,7 +805,7 @@ static int psoc4_flash_prepare(struct flash_bank *bank)
 	int retval;
 
 	/* get family ID from SROM call */
-	retval = psoc4_get_silicon_id(bank, NULL, &family_id, NULL);
+	retval = psoc4_get_silicon_id(bank, false, NULL, &family_id, NULL);
 	if (retval != ERROR_OK)
 		return retval;
 
@@ -817,7 +835,7 @@ static int psoc4_flash_prot_read(struct flash_bank *bank, uint8_t *buffer, uint3
 	struct target *target = bank->target;
 	struct psoc4_flash_bank *psoc4_info = bank->driver_priv;
 	
-	uint32_t prot_addr = PSOC4_SFLASH_MACRO0;
+	uint32_t prot_addr = psoc4_info->sflash_base;
 	uint32_t prot_addr_incr = psoc4_info->sflash_descr->flash_prot_addr_increment;
 	uint32_t bytes_per_macro = psoc4_info->die_num_rows / psoc4_info->num_macros / 8;
 	
@@ -972,7 +990,7 @@ static int psoc4_mass_erase(struct flash_bank *bank)
 	struct psoc4_flash_bank *psoc4_info = bank->driver_priv;
 
 	/* First of all check the protection state */
-	retval = psoc4_get_silicon_id(bank, NULL, NULL, &protection);
+	retval = psoc4_get_silicon_id(bank, false, NULL, NULL, &protection);
 	if (retval != ERROR_OK)
 		return retval;
 
@@ -1449,7 +1467,7 @@ static int psoc4_get_wounding(struct flash_bank *bank, uint32_t *wounding)
 	struct psoc4_flash_bank *psoc4_info = bank->driver_priv;
 	struct target *target = bank->target;
 
-	uint32_t wounding_addr = psoc4_info->sflash_descr->wounding_offs + PSOC4_SFLASH_MACRO0;
+	uint32_t wounding_addr = psoc4_info->sflash_descr->wounding_offs + psoc4_info->sflash_base;
 	int retval = target_read_u32(target, wounding_addr, wounding);
 	if (retval != ERROR_OK) {
 		*wounding = 0;
@@ -1491,6 +1509,13 @@ static int psoc4_read_geometry(struct flash_bank *bank, uint16_t *family_id, uin
 		LOG_ERROR("PSoC 4 family with id 0x%02X is not supported.", *family_id);
 		retval = ERROR_FAIL;
 		goto exit;
+	}
+
+	if (is_sflash_base_v2(*family_id)) {
+		psoc4_info->sflash_base = PSOC4_SFLASH_MACRO0_v2;
+	}
+	else{
+		psoc4_info->sflash_base = PSOC4_SFLASH_MACRO0;
 	}
 
 	assert(family->spcif_ver >= spcif_v2 && family->spcif_ver <= spcif_v3);
@@ -1571,8 +1596,25 @@ void psoc4_decode_silicon_info(struct flash_bank *bank)
 
 	/* Retrieve family and revision IDs */
 	int hr = psoc4_read_geometry(bank, &si_family_id, &si_revision_id, &flash_size_in_kb, &row_size, &num_macros);
-	if (hr != ERROR_OK)
+	if (hr != ERROR_OK) {
+		/* if it fails, chip must be protected, lets check by reading a word from the flash */
+		uint32_t val;
+		int retval = target_read_u32(target, bank->base, &val);
+		if (retval == ERROR_OK)
+			goto error_exit;
+
+		/* If flash read fails chip is probably protected, lets check by running a SROM API */
+		retval = psoc4_get_silicon_id(bank, true, NULL, NULL, &protection);
+		if (retval == ERROR_OK && protection == PSOC4_CHIP_PROT_PROTECTED)
+		{
+			LOG_USER("Warn:\tChip protection state is %s. Chip's resources access is locked down.", psoc4_decode_chip_protection(protection));
+			LOG_USER("\tThe state can be set back to OPEN but only after completely erasing the flash.");
+			LOG_USER("\tTo do so, perform erase operation with PSOC4_USE_MEM_AP variable set.");
+			
+			g_info_displayed = true;
+		}
 		goto error_exit;
+	}
 
 	LOG_DEBUG("SPCIF geometry: %" PRIu32 " kb flash, row %" PRIu32 " bytes.",
 		flash_size_in_kb, row_size);
@@ -1580,14 +1622,14 @@ void psoc4_decode_silicon_info(struct flash_bank *bank)
 	/* Read silicon id from SFLASH */
 	uint32_t tmp = 0;
 	psoc4_info->sflash_descr = psoc4_sflash_by_geometry(row_size, num_macros);
-	hr = target_read_u32(target, psoc4_info->sflash_descr->siid_offs + PSOC4_SFLASH_MACRO0, &tmp);
+	hr = target_read_u32(target, psoc4_info->sflash_descr->siid_offs + psoc4_info->sflash_base, &tmp);
 	if (hr != ERROR_OK)
 		goto error_exit;
 
 	si_siid = tmp & 0xFFFF;  /* 15:0 */
 
 	/* Read Protection and translate into format returned by SROM API*/
-	hr = target_read_u32(target, psoc4_info->sflash_descr->chip_protection_offs + PSOC4_SFLASH_MACRO0, &tmp);
+	hr = target_read_u32(target, psoc4_info->sflash_descr->chip_protection_offs + psoc4_info->sflash_base, &tmp);
 	if (hr != ERROR_OK)
 		goto error_exit;
 
@@ -1713,9 +1755,9 @@ static int psoc4_probe(struct flash_bank *bank)
 			num_rows = 0;
 
 		if (row_size == 256)
-			bank->base = 0x0ffff400;
+			bank->base = psoc4_info->sflash_base + 0x400;
 		else
-			bank->base = 0x0ffff200;
+			bank->base = psoc4_info->sflash_base + 0x200;
 	}
 
 	psoc4_info->family_id = family_id;
@@ -1815,7 +1857,7 @@ static int get_psoc4_info(struct flash_bank *bank, char *buf, int buf_size)
 	uint16_t family_id;
 	uint8_t protection;
 
-	retval = psoc4_get_silicon_id(bank, &silicon_id, &family_id, &protection);
+	retval = psoc4_get_silicon_id(bank, false, &silicon_id, &family_id, &protection);
 	if (retval != ERROR_OK)
 		return retval;
 

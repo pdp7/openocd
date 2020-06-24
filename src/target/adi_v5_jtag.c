@@ -225,6 +225,13 @@ static void flush_journal(struct adiv5_dap *dap, struct list_head *lh)
 
 static void jtag_quit(struct adiv5_dap *dap)
 {
+	LOG_INFO("Powering down Debug Domains...");
+	int hr1 = dap_queue_dp_write(dap, DP_CTRL_STAT, 0);
+	int hr2 = dap_dp_poll_register(dap, DP_CTRL_STAT, CDBGPWRUPACK | CSYSPWRUPACK, 0, 100);
+
+	if(hr1 != ERROR_OK || hr2 != ERROR_OK)
+		LOG_WARNING("Failed to power down Debug Domains");
+
 	struct dap_cmd_pool *el, *tmp;
 	struct list_head *lh = &dap->cmd_pool;
 
@@ -629,7 +636,7 @@ static int jtagdp_transaction_endcheck(struct adiv5_dap *dap)
 		}
 
 		if (ctrlstat & SSTICKYERR)
-			LOG_ERROR("JTAG-DP STICKY ERROR");
+			LOG_DEBUG("JTAG-DP STICKY ERROR");
 		if (ctrlstat & SSTICKYORUN)
 			LOG_DEBUG("JTAG-DP STICKY OVERRUN");
 

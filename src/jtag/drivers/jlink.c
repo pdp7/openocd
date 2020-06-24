@@ -2159,6 +2159,8 @@ static int jlink_swd_switch_seq(enum swd_special_seq seq)
 	return ERROR_OK;
 }
 
+#define SWD_WAIT_MAX_TRIES	10
+
 static int jlink_swd_run_queue(void)
 {
 	int i;
@@ -2177,35 +2179,91 @@ static int jlink_swd_run_queue(void)
 	 */
 	jlink_queue_data_out(NULL, 8);
 
-	ret = jaylink_swd_io(devh, tms_buffer, tdi_buffer, tdo_buffer, tap_length);
+	unsigned int tries;
+	size_t tap_position = 0;
+	static size_t last_ap_write_offset, last_ap_write_idx;
 
-	if (ret != JAYLINK_OK) {
-		LOG_ERROR("jaylink_swd_io() failed: %s.", jaylink_strerror(ret));
-		goto skip;
-	}
+	i = 0;
 
-	for (i = 0; i < pending_scan_results_length; i++) {
-		int ack = buf_get_u32(tdo_buffer, pending_scan_results_buffer[i].first, 3);
+	for (tries = SWD_WAIT_MAX_TRIES; tries; tries--) {
+		assert(!(tap_position % 8));
+		ret = jaylink_swd_io(devh, tms_buffer + tap_position / 8,
+					 tdi_buffer + tap_position / 8,
+					 tdo_buffer + tap_position / 8,
+					 tap_length - tap_position);
 
-		if (ack != SWD_ACK_OK) {
-			LOG_DEBUG("SWD ack not OK: %d %s", ack,
-				  ack == SWD_ACK_WAIT ? "WAIT" : ack == SWD_ACK_FAULT ? "FAULT" : "JUNK");
-			queued_retval = ack == SWD_ACK_WAIT ? ERROR_WAIT : ERROR_FAIL;
+		if (ret != JAYLINK_OK) {
+			LOG_ERROR("jaylink_swd_io() failed: %s.", jaylink_strerror_name(ret));
 			goto skip;
-		} else if (pending_scan_results_buffer[i].length) {
-			uint32_t data = buf_get_u32(tdo_buffer, 3 + pending_scan_results_buffer[i].first, 32);
-			int parity = buf_get_u32(tdo_buffer, 3 + 32 + pending_scan_results_buffer[i].first, 1);
+		}
 
-			if (parity != parity_u32(data)) {
-				LOG_ERROR("SWD: Read data parity mismatch.");
-				queued_retval = ERROR_FAIL;
-				goto skip;
+		for (; i < pending_scan_results_length; i++) {
+			int ack = buf_get_u32(tdo_buffer, pending_scan_results_buffer[i].first, 3);
+
+			uint32_t cmd = buf_get_u32(tdi_buffer, pending_scan_results_buffer[i].first - 8, 8);
+
+#if (0)
+			LOG_DEBUG("%d: %s %s %s reg %X = %08"PRIx32,
+				  i,
+				  ack == SWD_ACK_OK ? "OK" : ack == SWD_ACK_WAIT ? "WAIT" : ack == SWD_ACK_FAULT ? "FAULT" : "JUNK",
+				  cmd & SWD_CMD_APnDP ? "AP" : "DP",
+				  cmd & SWD_CMD_RnW ? "read" : "write",
+				  (cmd & SWD_CMD_A32) >> 1,
+				  (cmd & SWD_CMD_RnW)
+				  ? buf_get_u32(tdo_buffer, 3 + pending_scan_results_buffer[i].first, 32)
+				  : buf_get_u32(tdi_buffer, 4 + pending_scan_results_buffer[i].first, 32));
+#endif
+			if ((cmd & SWD_CMD_APnDP) && !(cmd & SWD_CMD_RnW)) {
+				last_ap_write_offset = pending_scan_results_buffer[i].first - 8;
+				last_ap_write_idx = i;
 			}
 
-			if (pending_scan_results_buffer[i].buffer)
-				*(uint32_t *)pending_scan_results_buffer[i].buffer = data;
+			if (ack != SWD_ACK_OK) {
+				LOG_DEBUG("SWD ack not OK: %d %s", ack,
+					  ack == SWD_ACK_WAIT ? "WAIT" : ack == SWD_ACK_FAULT ? "FAULT" : "JUNK");
+				queued_retval = ack == SWD_ACK_WAIT ? ERROR_WAIT : ERROR_FAIL;
+				if (ack == SWD_ACK_WAIT) {
+					/* Try to clear STICKYORUN; if it fails anyhow, the next
+					 * transaction will fail too and then get handled properly */
+					uint8_t dir[6] = { 0xff, 0xe0, 0xff, 0xff, 0xff, 0xff };
+					uint8_t out[6] = { 0x81, 0x00, 0x02, 0x00, 0x00, 0x04 };
+					uint8_t in[6];
+					jaylink_swd_io(devh, dir, out, in, 48);
+
+					/* Roll back to the failed transaction; if it was RDBUFF
+					   read, we need to rollback to the last AP write access */
+					if (!(cmd & SWD_CMD_APnDP) && (cmd & SWD_CMD_RnW) &&
+						((cmd & SWD_CMD_A32) >> 1) == 0x0C) {
+						tap_position = last_ap_write_offset;
+						i = last_ap_write_idx;
+					} else
+						tap_position = pending_scan_results_buffer[i].first - 8;
+					break;
+				}
+				goto skip;
+			} else if (pending_scan_results_buffer[i].length) {
+				uint32_t data = buf_get_u32(tdo_buffer, 3 + pending_scan_results_buffer[i].first, 32);
+				int parity = buf_get_u32(tdo_buffer, 3 + 32 + pending_scan_results_buffer[i].first, 1);
+				LOG_DEBUG("Read: %08"PRIx32, data);
+
+				if (parity != parity_u32(data)) {
+					LOG_ERROR("SWD: Read data parity mismatch.");
+					queued_retval = ERROR_FAIL;
+					goto skip;
+				}
+
+				if (pending_scan_results_buffer[i].buffer)
+					*(uint32_t *)pending_scan_results_buffer[i].buffer = data;
+			}
+			queued_retval = ERROR_OK;
+			tries = SWD_WAIT_MAX_TRIES;
 		}
+		if (i == pending_scan_results_length)
+			break;
 	}
+
+	if (!tries)
+		LOG_ERROR("Got too many SWD WAIT replies, giving up");
 
 skip:
 	jlink_tap_init();
@@ -2249,6 +2307,10 @@ static void jlink_swd_queue_cmd(uint8_t cmd, uint32_t *dst, uint32_t data, uint3
 
 		jlink_queue_data_out(data_parity_trn, 32 + 1);
 	}
+
+	/* Align the next command on byte boundary */
+	uint8_t dummy = 0;
+	jlink_queue_data_out(&dummy, 2);
 
 	pending_scan_results_length++;
 

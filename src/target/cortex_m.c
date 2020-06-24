@@ -1188,12 +1188,8 @@ static int cortex_m_assert_reset(struct target *target)
 		if (retval3 != ERROR_OK)
 			LOG_DEBUG("Ignoring AP write error right after reset");
 
-		const int dl_old = debug_level;
-		debug_level = -1;
-		usleep(100000);
-		dap_invalidate_cache(armv7m->debug_ap->dap);
-		mem_ap_read_atomic_u32(armv7m->debug_ap, DCB_DHCSR, &cortex_m->dcb_dhcsr);
-		debug_level = dl_old;
+		/* Sleep even after soft-reset */
+		jtag_sleep(jtag_get_nsrst_delay() * 1000u);
 
 		retval3 = dap_dp_init(armv7m->debug_ap->dap);
 		if (retval3 != ERROR_OK)

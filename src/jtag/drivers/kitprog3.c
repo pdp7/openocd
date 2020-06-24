@@ -36,6 +36,7 @@
 #define KP3_USB_TIMEOUT                   1000u
 #define KP3_REQUEST_VERSION               0x80
 #define KP3_REQUEST_ACQUIRE               0x85
+#define KP3_REQUEST_ACQUIRE_PARAM         0x91
 #define KP3_REQUEST_POWER                 0x84
 #define KP3_REQUEST_POWER_SET             0x10
 #define KP3_REQUEST_POWER_GET             0x11
@@ -58,6 +59,8 @@ struct acquire_config {
 	uint8_t target_type;
 	uint8_t acquire_mode;
 	uint8_t attempts;
+	uint8_t acquire_timeout;
+	uint8_t acquire_ap;
 };
 
 struct power_config {
@@ -289,12 +292,34 @@ static int kitprog3_acquire_psoc(void)
 		goto error;
 	}
 
-	LOG_INFO("kitprog3: acquiring PSoC device...");
+	LOG_INFO("kitprog3: acquiring the device...");
 
 	struct cmsis_dap *dap = cmsis_dap_handle;
 	int hr = kitprog3_led_control(KP3_LED_STATE_PROGRAMMING);
 	if (hr != ERROR_OK)
 		goto error;
+
+	if(acquire_config.acquire_timeout) {
+		dap->packet_buffer[0] = 0;
+		dap->packet_buffer[1] = KP3_REQUEST_ACQUIRE_PARAM;
+		dap->packet_buffer[2] = 0;
+		dap->packet_buffer[3] = acquire_config.acquire_timeout;
+
+		hr = kitprog3_usb_request(KP3_USB_TIMEOUT, true);
+		if (hr != ERROR_OK) {
+			LOG_WARNING("KitProg3: Acquire timeout not configurable, please update the firmware");
+		}
+
+		dap->packet_buffer[0] = 0;
+		dap->packet_buffer[1] = KP3_REQUEST_ACQUIRE_PARAM;
+		dap->packet_buffer[2] = 2;
+		dap->packet_buffer[3] = acquire_config.acquire_ap;
+
+		hr = kitprog3_usb_request(KP3_USB_TIMEOUT, true);
+		if (hr != ERROR_OK) {
+			LOG_WARNING("KitProg3: Acquire AP not configurable, please update the firmware");
+		}
+	}
 
 	dap->packet_buffer[0] = 0;
 	dap->packet_buffer[1] = KP3_REQUEST_ACQUIRE;
@@ -309,7 +334,7 @@ static int kitprog3_acquire_psoc(void)
 	}
 
 	if (dap->packet_buffer[2] == 0) {
-		LOG_ERROR("kitprog3: failed to acquire PSoC device");
+		LOG_ERROR("kitprog3: failed to acquire the device");
 		goto error;
 	}
 
@@ -453,28 +478,38 @@ static int kitprog3_quit(void)
  *************************************************************************************************/
 COMMAND_HANDLER(cmsis_dap_handle_acquire_config_command)
 {
-	if (CMD_ARGC  == 0)
+	if (CMD_ARGC != 1 && CMD_ARGC != 4 && CMD_ARGC != 6)
 		return ERROR_COMMAND_ARGUMENT_INVALID;
 
 	bool enabled = false;
 	uint8_t target = 0;
 	uint8_t mode = 0;
 	uint8_t attempts = 0;
+	uint8_t timeout_sec = 0;
+	uint8_t ap_num = 255;
 
 	COMMAND_PARSE_ON_OFF(CMD_ARGV[0], enabled);
 
 	if (enabled) {
-		if (CMD_ARGC != 4)
+		if (CMD_ARGC != 4 && CMD_ARGC != 6)
 			return ERROR_COMMAND_ARGUMENT_INVALID;
+
 		COMMAND_PARSE_NUMBER(u8, CMD_ARGV[1], target);
 		COMMAND_PARSE_NUMBER(u8, CMD_ARGV[2], mode);
 		COMMAND_PARSE_NUMBER(u8, CMD_ARGV[3], attempts);
+
+		if(CMD_ARGC == 6) {
+			COMMAND_PARSE_NUMBER(u8, CMD_ARGV[4], timeout_sec);
+			COMMAND_PARSE_NUMBER(u8, CMD_ARGV[5], ap_num);
+		}
 	}
 
 	acquire_config.configured = enabled;
 	acquire_config.target_type = target;
 	acquire_config.acquire_mode = mode;
 	acquire_config.attempts = attempts;
+	acquire_config.acquire_timeout = timeout_sec;
+	acquire_config.acquire_ap = ap_num;
 
 	return ERROR_OK;
 }
@@ -622,8 +657,8 @@ static const struct command_registration kitprog3_subcommand_handlers[] = {
 		.name = "acquire_config",
 		.handler = &cmsis_dap_handle_acquire_config_command,
 		.mode = COMMAND_CONFIG,
-		.usage = "<enabled on|off> [target_type (0:PSoC4, 1:PSoC5-LP, 2:PSoC6...)] "
-			"[mode (0: Reset, 1: Power Cycle)] [attempts]",
+		.usage = "<enabled on|off> <target_type (0:PSoC4, 1:PSoC5-LP, 2:PSoC6...)>"
+			"<mode (0: Reset, 1: Power Cycle)> <attempts> [<timeout_sec> <ap_num>]",
 		.help = "Controls PSoC acquisition during init phase",
 	},
 	{
@@ -631,7 +666,7 @@ static const struct command_registration kitprog3_subcommand_handlers[] = {
 		.handler = &cmsis_dap_handle_acquire_psoc_command,
 		.mode = COMMAND_EXEC,
 		.usage = "",
-		.help = "Acquire PSoC device",
+		.help = "Acquire the device",
 	},
 	{
 		.name = "power_config",

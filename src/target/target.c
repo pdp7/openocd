@@ -1091,7 +1091,7 @@ int target_run_flash_async_algorithm(struct target *target,
 	int retval2 = target_wait_algorithm(target, num_mem_params, mem_params,
 			num_reg_params, reg_params,
 			exit_point,
-			10000,
+			30000,
 			arch_info);
 
 	if (retval2 != ERROR_OK) {

@@ -83,7 +83,10 @@ const struct mxs40_regs traveo2_regs = {
 	.ipc_intr = MEM_IPC2_INTR_MASK,
 	.ipc_intr_msk = IPC_INTR_MASK_2_CORE,
 	.vtbase = {MEM_VTBASE2_CM0, MEM_VTBASE2_CM4, 0, },
-	.mem_base_main = {0x10000000, 0,},
+	.mem_base_main = {0x10000000, // present on Si and PSVP
+					  0x101F8000, 0x103F0000, 0x10400000, // C2D-4M PSVP
+					  0, // MARKER
+					 },
 	.mem_base_work = {0x14000000, 0,},
 	.mem_base_sflash = {0x17000000, 0,},
 };
@@ -108,7 +111,7 @@ const struct mxs40_regs traveo2_8m_regs = {
 					  0x102f8000, 0x105F0000, 0x10610000, // 6M PSVP
 					  0x10400000, // 8M PSVP
 					  0 // MARKER
-					  },
+					 },
 	.mem_base_work = {0x14000000, 0,},
 	.mem_base_sflash = {0x17000000, 0,},
 };
@@ -280,7 +283,7 @@ static int traveo2_flash_read(struct flash_bank *bank, uint8_t *buffer, uint32_t
 static size_t traveo2_erase_builder(struct flash_bank *bank, int first, int last, uint32_t *address_buffer)
 {
 	size_t sector_count = 0;
-	for(int i = first; i < last - first + 1; i++)
+	for(int i = first; i <= last; i++)
 		address_buffer[sector_count++] = (bank->base + bank->sectors[i].offset) | 1u;
 
 	return sector_count;

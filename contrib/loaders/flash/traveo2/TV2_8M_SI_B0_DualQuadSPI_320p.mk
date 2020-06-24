@@ -1,4 +1,4 @@
-GLOBAL_DEFS := -DCY_USE_PSVP=0 -Dtviic2d6m -DCYT4DNDBHS -DDUAL_QUAD_SPI=1
+GLOBAL_DEFS := -DCY_USE_PSVP=0 -Dtviibh8m -DCYT4BFCCHE -DDUAL_QUAD_SPI=1
 
 INCLPATHS := \
 -Isdl/common								\
@@ -37,35 +37,33 @@ INCLPATHS := \
 -Isdl/common/src/mw/semihosting				\
 -Isdl/common/src/mw/sw_timer				\
 -Isdl/common/src/startup					\
--Isdl/tviic2d6m								\
--Isdl/tviic2d6m/hdr							\
--Isdl/tviic2d6m/hdr/rev_a					\
--Isdl/tviic2d6m/hdr/rev_a/ip				\
--Isdl/tviic2d6m/hdr/rev_a/mcureg			\
--Isdl/tviic2d6m/src							\
--Isdl/tviic2d6m/src/drivers					\
--Isdl/tviic2d6m/src/drivers/audioss			\
--Isdl/tviic2d6m/src/drivers/cpu				\
--Isdl/tviic2d6m/src/drivers/crypto			\
--Isdl/tviic2d6m/src/drivers/crypto/libs		\
--Isdl/tviic2d6m/src/drivers/ethernet		\
--Isdl/tviic2d6m/src/drivers/flash			\
--Isdl/tviic2d6m/src/drivers/flexray			\
--Isdl/tviic2d6m/src/drivers/flexray/api		\
--Isdl/tviic2d6m/src/drivers/flexray/ccal	\
--Isdl/tviic2d6m/src/drivers/flexray/fhal	\
--Isdl/tviic2d6m/src/drivers/sd_host			\
--Isdl/tviic2d6m/src/drivers/smif			\
--Isdl/tviic2d6m/src/drivers/sysclk			\
--Isdl/tviic2d6m/src/drivers/sysflt			\
--Isdl/tviic2d6m/src/drivers/sysreg			\
--Isdl/tviic2d6m/src/examples/smif			\
--Isdl/tviic2d6m/src/interrupts				\
--Isdl/tviic2d6m/src/interrupts/rev_a		\
--Isdl/tviic2d6m/src/mw						\
--Isdl/tviic2d6m/src/mw/reghc				\
--Isdl/tviic2d6m/src/mw/smif_mem				\
--Isdl/tviic2d6m/src/system					\
--Isdl/tviic2d6m/src/system/rev_a			\
-
-
+-Isdl/tviibh8m								\
+-Isdl/tviibh8m/hdr							\
+-Isdl/tviibh8m/src							\
+-Isdl/tviibh8m/src/drivers					\
+-Isdl/tviibh8m/src/drivers/audioss			\
+-Isdl/tviibh8m/src/drivers/cpu				\
+-Isdl/tviibh8m/src/drivers/crypto			\
+-Isdl/tviibh8m/src/drivers/crypto/libs		\
+-Isdl/tviibh8m/src/drivers/ethernet		\
+-Isdl/tviibh8m/src/drivers/flash			\
+-Isdl/tviibh8m/src/drivers/flexray			\
+-Isdl/tviibh8m/src/drivers/flexray/api		\
+-Isdl/tviibh8m/src/drivers/flexray/ccal	\
+-Isdl/tviibh8m/src/drivers/flexray/fhal	\
+-Isdl/tviibh8m/src/drivers/sd_host			\
+-Isdl/tviibh8m/src/drivers/smif			\
+-Isdl/tviibh8m/src/drivers/sysclk			\
+-Isdl/tviibh8m/src/drivers/sysflt			\
+-Isdl/tviibh8m/src/drivers/sysreg			\
+-Isdl/tviibh8m/src/examples/smif			\
+-Isdl/tviibh8m/src/interrupts				\
+-Isdl/tviibh8m/src/mw						\
+-Isdl/tviibh8m/src/mw/reghc				\
+-Isdl/tviibh8m/src/mw/smif_mem				\
+-Isdl/tviibh8m/src/system					\
+-Isdl/tviibh8m/src/system/rev_d			\
+-Isdl/tviibh8m/hdr/rev_d					\
+-Isdl/tviibh8m/hdr/rev_d/ip				\
+-Isdl/tviibh8m/hdr/rev_d/mcureg			\
+-Isdl/tviibh8m/src/interrupts/rev_d		\

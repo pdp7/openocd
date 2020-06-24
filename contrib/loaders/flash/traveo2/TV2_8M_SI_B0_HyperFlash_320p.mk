@@ -1,6 +1,4 @@
-GLOBAL_DEFS := -DCY_USE_PSVP=0 -Dtviibh8m -DCYT4BF8CDE -DHYPER_RAM=1
-
-LDSCRIPT := flm/initonly_linker_script.ld
+GLOBAL_DEFS := -DCY_USE_PSVP=0 -Dtviibh8m -DCYT4BFCCHE -DHYPER_FLASH=1
 
 INCLPATHS := \
 -Isdl/common								\

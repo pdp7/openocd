@@ -39,10 +39,10 @@ struct mxs40_regs {
 	uint32_t ipc_intr;
 	uint32_t ipc_intr_msk;
 	uint32_t ppu_flush;
-	uint32_t vtbase[4];
+	uint32_t vtbase[3];
 	uint32_t mem_base_main[6];
-	uint32_t mem_base_work[6];
-	uint32_t mem_base_sflash[6];
+	uint32_t mem_base_work[2];
+	uint32_t mem_base_sflash[2];
 };
 
 #define MXS40_VARIANT_PSOC6_BLE2            1

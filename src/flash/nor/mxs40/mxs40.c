@@ -1218,8 +1218,7 @@ static int mxs40_reset_halt(struct target *target, enum reset_halt_mode mode)
 	target->state = TARGET_RUNNING;
 	target_call_event_callbacks(target, TARGET_EVENT_RESUMED);
 
-	const int dl_old = debug_level;
-	debug_level = -1;
+	const enum log_levels lvl = change_debug_level(LOG_LVL_USER);
 	alive_sleep(jtag_get_nsrst_delay());
 	struct timeout to;
 	mxs40_timeout_init(&to, IPC_TIMEOUT_MS);
@@ -1230,7 +1229,7 @@ static int mxs40_reset_halt(struct target *target, enum reset_halt_mode mode)
 			break;
 		alive_sleep(5);
 	}
-	debug_level = dl_old;
+	change_debug_level(lvl);
 
 	target_wait_state(target, TARGET_HALTED, IPC_TIMEOUT_MS);
 

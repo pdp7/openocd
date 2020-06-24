@@ -13,19 +13,21 @@
 #include "cy_project.h"
 #include "tvii_series_smif_ex_adopter.h"
 
+#include <string.h>
 #include "glue_functions.c"
 #include "sdl/common/src/drivers/gpio/cy_gpio.c"
 #include "sdl/common/src/drivers/syslib/cy_syslib.c"
 #include "sdl/common/src/drivers/syspm/cy_syspm.c"
 #include "sdl/common/src/drivers/syswdt/cy_syswdt.c"
-#include "sdl/tviic2d6m/src/drivers/smif/cy_smif.c"
-#include "sdl/tviic2d6m/src/drivers/smif/cy_smif_memslot.c"
-#include "sdl/tviic2d6m/src/drivers/sysclk/cy_sysclk.c"
-#include "sdl/tviic2d6m/src/drivers/syspmic/cy_syspmic.c"
-#include "sdl/tviic2d6m/src/mw/pmic/cy_pmic.c"
-#include "sdl/tviic2d6m/src/mw/smif_mem/cy_smif_device_common.c"
-#include "sdl/tviic2d6m/src/mw/smif_mem/cy_smif_hb_flash.c"
-#include "sdl/tviic2d6m/src/system/rev_a/system_tviic2d6m_cm0plus.c"
+#include "sdl/common/src/drivers/systick/cy_systick.c"
+#include "sdl/tviibh8m/src/drivers/smif/cy_smif.c"
+#include "sdl/tviibh8m/src/drivers/smif/cy_smif_memslot.c"
+#include "sdl/tviibh8m/src/drivers/sysclk/cy_sysclk.c"
+#include "sdl/tviibh8m/src/drivers/sysreghc/cy_sysreghc.c"
+#include "sdl/tviibh8m/src/mw/power/cy_power.c"
+#include "sdl/tviibh8m/src/mw/smif_mem/cy_smif_device_common.c"
+#include "sdl/tviibh8m/src/mw/smif_mem/cy_smif_hb_flash.c"
+#include "sdl/tviibh8m/src/system/rev_b/system_tviibh8m_cm0plus.c"
 
 /************ Modifiable definitions **********/
 #define TEST_SECTOR_NO (0)  // modifiable 0 ~ 255
@@ -54,7 +56,7 @@ cy_stc_smif_context_t smifContext;
 
 #define HB_FLASH_TARGET_LC CY_SMIF_HB_LC10
 
-cy_stc_device_hb_config_t smifDevHBFlashCfg = {
+static cy_stc_device_hb_config_t smifDevHBFlashCfg = {
     .xipReadCmd = CY_SMIF_HB_READ_CONTINUOUS_BURST,
     .xipWriteCmd = CY_SMIF_HB_WRITE_CONTINUOUS_BURST,
     .mergeEnable = false,  // will be updated in the application
@@ -104,10 +106,6 @@ static void SetModeWithBusyCheck(volatile stc_SMIF_t* base, cy_en_smif_mode_t mo
 uint16_t HyperFlashReadStatusOpInMMIO(void);
 void HyperFlashEraseOpInMMIO(uint32_t address);
 void HyperFlashWordProgramOpInMMIO(uint32_t address, uint16_t* writeData, uint16_t halfWordCount);
-bool SetSmifFrequencyWithDelayLineTapNumCalibration_HFLASH(uint32_t safeFreq, uint32_t freq,
-                                                           uint32_t usedAddr,
-                                                           cy_en_smif_slave_select_t slave);
-void CalibrateDelayLineSelect(uint32_t freq, bool isDDR);
 
 static CY_SMIF_FLASHDATA* g_base_addr;
 
@@ -116,9 +114,8 @@ __attribute__((used)) int Init(unsigned long adr, unsigned long clk, unsigned lo
   smifDevHBFlashCfg.addr = (uint32_t)g_base_addr;
 
   SystemInit();
-
   Cy_SysClk_HfClkEnable(SMIF_HF_CLOCK);
-  ChangePLLFrequency(64000000);  // SMIF out clock will be 32,000,000
+  ChangePLLFrequency(64000000);  // SMIF out clock will be 80,000,000
   SmifPortInit(smifPortCfg, SIZE_OF_PORT);
 
   /*************************************/
@@ -129,13 +126,11 @@ __attribute__((used)) int Init(unsigned long adr, unsigned long clk, unsigned lo
   Cy_SMIF_Enable(SMIF_USED, &smifContext);
   Cy_SMIF_CacheInvalidate(SMIF_USED, CY_SMIF_CACHE_BOTH);
   Cy_SMIF_CacheDisable(SMIF_USED, CY_SMIF_CACHE_BOTH);
-  volatile CY_SMIF_FLASHDATA* pHyperFlashBaseAddr =
-      (CY_SMIF_FLASHDATA*)(CY_SMIF_GetXIP_Address(SMIF_USED));
 
   /*************************************/
   /*     SMIF DEVICE Initialization    */
   /*************************************/
-  smifDevHBFlashCfg.addr = (uint32_t)pHyperFlashBaseAddr;
+  // smifDevHBFlashCfg.addr = (uint32_t)pHyperFlashBaseAddr;
   Cy_SMIF_InitDeviceHyperBus(SMIF_DEVICE0, &smifDevHBFlashCfg);
 
   /*************************************/
@@ -145,14 +140,16 @@ __attribute__((used)) int Init(unsigned long adr, unsigned long clk, unsigned lo
   // Load Configuration register 1
   cy_un_h_flash_cfg1_reg_t flashVCR1 = {.u16 = CFG_REG1_DEFAULT_S26K};
   flashVCR1.fld.readLatency = smifDevHBFlashCfg.lc_hb;
-  flashVCR1.fld.driveStrength = CY_SMIF_HB_S26K_DRV_20_12_OHMS;
-  CY_SMIF_HbFlash_LoadVolatileConfigReg(pHyperFlashBaseAddr, flashVCR1.u16);
+  flashVCR1.fld.driveStrength = CY_SMIF_HB_S26K_DRV_34_20_OHMS;
+  CY_SMIF_HbFlash_LoadVolatileConfigReg(g_base_addr, flashVCR1.u16);
 
   // Read Configuration register 1
-  uint16_t readConfig1RegVal = CY_SMIF_HbFlash_ReadVolatileConfigReg(pHyperFlashBaseAddr);
+  uint16_t readConfig1RegVal = CY_SMIF_HbFlash_ReadVolatileConfigReg(g_base_addr);
 
   // Verify Configuration register 1
   CY_ASSERT(readConfig1RegVal == flashVCR1.u16);
+  // CY_SMIF_HbFlash_SectorEraseOp(pHyperFlashBaseAddr, TEST_SECTOR_ADDRESS);
+
   return 0;
 }
 
@@ -162,7 +159,6 @@ static void SetModeWithBusyCheck(volatile stc_SMIF_t* base, cy_en_smif_mode_t mo
     status = Cy_SMIF_SetMode(base, mode);
   } while (status != CY_SMIF_SUCCESS);
 }
-
 __attribute__((used)) int UnInit(unsigned long fnc) {
   (void)fnc;
   return (0);

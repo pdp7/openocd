@@ -344,16 +344,8 @@ COMMAND_HANDLER(psoc6_handle_secure_acquire)
 	if(CMD_ARGC != 4)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
-	uint32_t ipc_data_addr;
-	if(strcmp(CMD_ARGV[0], "psoc6") == 0) {
-		ipc_data_addr = MEM_IPC1_DATA;
-	} else if(strcmp(CMD_ARGV[0], "psoc6_2m") == 0) {
-		ipc_data_addr = MEM_IPC2_DATA;
-	} else {
-		LOG_ERROR("Invalid target for secure_acquire: '%s'. "
-				  "Only 'psoc6' and 'psoc6_2m' are currently supported.", CMD_ARGV[0]);
-		return ERROR_COMMAND_SYNTAX_ERROR;
-	}
+    uint32_t magic_addr;
+    COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], magic_addr);
 
 	if(strcmp(CMD_ARGV[1], "run") == 0) {
 		acquire_mode_halt = false;
@@ -381,7 +373,7 @@ COMMAND_HANDLER(psoc6_handle_secure_acquire)
 	LOG_INFO("Waiting up to %d.%d sec for the bootloader to open AP #%d...",
 			 timeout / 1000u, timeout % 1000u, ap);
 
-	enum log_levels old_level = change_debug_level(LOG_LVL_USER);
+	const enum log_levels old_level = change_debug_level(LOG_LVL_USER);
 	mxs40_timeout_init(&to, timeout);
 
 	const char *error_msg = "";
@@ -399,10 +391,6 @@ COMMAND_HANDLER(psoc6_handle_secure_acquire)
 	/* Set TEST_MODE bit (only if we are going to halt) */
 	while(do_handshake && acquire_mode_halt && !mxs40_timeout_expired(&to)) {
 		keep_alive();
-
-		error_msg = "failed to write IPC[2].DATA register";
-		if(target_write_u32(target, ipc_data_addr, 0) != ERROR_OK)
-			continue;
 
 		error_msg = "failed to write SRSS.TST_MODE register";
 		if(target_write_u32(target, 0x40260100, 0x80000000) != ERROR_OK)
@@ -423,17 +411,19 @@ COMMAND_HANDLER(psoc6_handle_secure_acquire)
 		LOG_INFO("Waiting up to %d.%d sec for the handshake from the target...",
 				 timeout / 1000u, timeout % 1000u);
 
+		change_debug_level(LOG_LVL_USER);
 		mxs40_timeout_init(&to, timeout);
 		while(!mxs40_timeout_expired(&to)) {
 			keep_alive();
 
 			uint32_t ipc_data;
-			if(target_read_u32(target, ipc_data_addr, &ipc_data) != ERROR_OK)
+			if(target_read_u32(target, magic_addr, &ipc_data) != ERROR_OK)
 				continue;
 
 			if(ipc_data == 0x12344321)
 				break;
 		};
+		change_debug_level(old_level);
 
 		if(mxs40_timeout_expired(&to))
 			LOG_WARNING("No handshake from the target, continuing anyway");

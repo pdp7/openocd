@@ -13,16 +13,18 @@
 #include "cy_project.h"
 #include "tvii_series_smif_ex_adopter.h"
 
+#include <string.h>
 #include "glue_functions.c"
 #include "sdl/common/src/drivers/gpio/cy_gpio.c"
 #include "sdl/common/src/drivers/syslib/cy_syslib.c"
 #include "sdl/common/src/drivers/syspm/cy_syspm.c"
 #include "sdl/common/src/drivers/syswdt/cy_syswdt.c"
+#include "sdl/common/src/drivers/systick/cy_systick.c"
 #include "sdl/tviibh8m/src/drivers/smif/cy_smif.c"
 #include "sdl/tviibh8m/src/drivers/smif/cy_smif_memslot.c"
 #include "sdl/tviibh8m/src/drivers/sysclk/cy_sysclk.c"
-#include "sdl/tviibh8m/src/drivers/sysreg/cy_sysreg.c"
-#include "sdl/tviibh8m/src/mw/reghc/cy_reghc.c"
+#include "sdl/tviibh8m/src/drivers/sysreghc/cy_sysreghc.c"
+#include "sdl/tviibh8m/src/mw/power/cy_power.c"
 #include "sdl/tviibh8m/src/mw/smif_mem/cy_smif_device_common.c"
 #include "sdl/tviibh8m/src/mw/smif_mem/cy_smif_hb_flash.c"
 #include "sdl/tviibh8m/src/system/rev_b/system_tviibh8m_cm0plus.c"
@@ -123,7 +125,7 @@ __attribute__((used, __section__(".start"))) int Init(unsigned long adr, unsigne
   /*************************************/
   /***** Set Configuration register 0 *****/
   // Load Configuration register 0
-  cy_un_h_ram_cfg0_reg_t ramVCR = {.u16 = CY_SMIF_CFG_REG0_DEFAULT_S27K};
+  cy_un_h_ram_cfg0_reg_t ramVCR = {.u16 = CY_SMIF_CFG_REG0_DEFAULT_S27KXXXX1};
   ramVCR.fld.readLatency = smifDevHBSramCfg.lc_hb;
   CY_SMIF_WriteHYPERRAM_REG(SMIF_DEVICE1, CY_SMIF_CFG_REG0_ADDR_S27K, ramVCR.u16);
   __BKPT(0);

@@ -3,6 +3,7 @@
 #include "tvii_series_smif_ex_adopter.h"
 
 #include "glue_functions.c"
+#include "sdl/common/src/drivers/systick/cy_systick.c"
 #include "sdl/common/src/drivers/gpio/cy_gpio.c"
 #include "sdl/common/src/drivers/syslib/cy_syslib.c"
 #include "sdl/common/src/drivers/syspm/cy_syspm.c"
@@ -10,11 +11,11 @@
 #include "sdl/tviibh8m/src/drivers/smif/cy_smif.c"
 #include "sdl/tviibh8m/src/drivers/smif/cy_smif_memslot.c"
 #include "sdl/tviibh8m/src/drivers/sysclk/cy_sysclk.c"
-#include "sdl/tviibh8m/src/drivers/sysreg/cy_sysreg.c"
-#include "sdl/tviibh8m/src/mw/reghc/cy_reghc.c"
+#include "sdl/tviibh8m/src/drivers/sysreghc/cy_sysreghc.c"
+#include "sdl/tviibh8m/src/mw/power/cy_power.c"
 #include "sdl/tviibh8m/src/mw/smif_mem/cy_smif_device_common.c"
 #include "sdl/tviibh8m/src/mw/smif_mem/cy_smif_s25fl.c"
-#include "sdl/tviibh8m/src/system/rev_b/system_tviibh8m_cm0plus.c"
+#include "sdl/tviibh8m/src/system/rev_d/system_tviibh8m_cm0plus.c"
 
 /***** User Modifiable definitions *****/
 #define DLP_VALUE (0x34u)

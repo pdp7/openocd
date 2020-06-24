@@ -4,6 +4,8 @@
 enum progress_type {
 	ERASING,
 	PROGRAMMING,
+	VERIFYING,
+	BLANKCHECK,
 };
 
 void progress_init(size_t total, enum progress_type type);

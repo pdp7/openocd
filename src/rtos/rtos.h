@@ -113,6 +113,7 @@ struct rtos_register_stacking {
 
 int rtos_create(Jim_GetOptInfo *goi, struct target *target);
 void rtos_cleanup(struct target *target);
+void rtos_destroy(struct target *target);
 int rtos_set_reg(struct connection *connection, int reg_num,
 		uint8_t *reg_value);
 int rtos_generic_stack_read(struct target *target,

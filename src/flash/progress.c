@@ -9,7 +9,9 @@ static size_t total_size;
 
 static const char *progress_str[] = {
 	"Erasing    ",
-	"Programming"
+	"Programming",
+	"Verifying  ",
+	"Blank Check",
 };
 
 

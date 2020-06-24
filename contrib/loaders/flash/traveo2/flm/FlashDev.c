@@ -57,7 +57,7 @@ struct FlashDevice const FlashDevice  =  {
    {{ 0x00040000, 0x000000, }, /* Set Sector size */
    { SECTOR_END }}
 };
-#elif defined (tviibh8m) && defined (DUAL_QUAD_SPI)
+#elif (defined (tviibh8m) || defined (tviibh4m) ) && defined (DUAL_QUAD_SPI)
 __attribute__((used))
 struct FlashDevice const FlashDevice  =  {
    FLASH_DRV_VERS,             /* Driver Version, do not modify! */
