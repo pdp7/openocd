@@ -32,6 +32,6 @@ Note: openOCD v4.0.0.907 does not support pre-production versions of PSoC64 MCUs
 -   [ModusToolbox Device Configurator Tool
     Guide](https://www.cypress.com/ModusToolboxDeviceConfig)
 
--   [Cypress Semiconductor](http://www.cypress.com)
+-   [Cypress Semiconductor, an Infineon Technologies Company](http://www.cypress.com)
 
 © Cypress Semiconductor Corporation, 2020.
