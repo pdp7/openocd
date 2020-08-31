@@ -1,13 +1,9 @@
-### Cypress OpenOCD v4.0.0 Release Notes
+### Cypress OpenOCD v4.1.0 Release Notes
 
 Please refer to the README.md for a complete description of the Cypress customized version of OpenOCD.
 
 ### New Features
 
-- Adds support of PSoC64-2M and PSoC64-512K production MCUs
-Note: openOCD v4.0.0.907 does not support pre-production versions of PSoC64 MCUs. If you would like to continue to work with pre-production versions, please use the previous releases of openOCD
-- Adds support of external memory on CYW9P62S1-43012EVB-01 kit 
-- Increases performance of erase operation
 - Delivers fixes for various defects
 
 ### Known Issues
@@ -16,6 +12,7 @@ Note: openOCD v4.0.0.907 does not support pre-production versions of PSoC64 MCUs
 |-----------------------------------|-----------------------------------|-----------------------------------|
 |  PROGTOOLS-1425 | A “JTAG-DP STICKY ERROR” message may appear in the IDE when connected via the JTAG interface of a MiniProg4 probe in CMSIS-DAP HID mode.  |  You can safely ignore this error, or switch the MiniProg4 to CMSIS-DAP bulk mode. | 
 | PROGTOOLS-1429  | JTAG performance on MiniProg4 may be significantly slower than SWD.  |  Use the SWD interface if JTAG performance is not acceptable. |
+|  PROGTOOLS-1869 | In Linux OS, with KitProg3 in CMSIS-DAP HID mode, a debug session in ModusToolbox can be destroyed if you use the Firmware Loader --device-list command while debugging. This is limitation of hidapi library used on Linux. MacOS and Windows OSs are not impacted. | If you have a debug session running, don't use the firmware loader tool.  |
 
 
 
