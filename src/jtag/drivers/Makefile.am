@@ -129,9 +129,14 @@ endif
 if REMOTE_BITBANG
 DRIVERFILES += %D%/remote_bitbang.c
 endif
-if HLADAPTER
+if HLADAPTER_STLINK
 DRIVERFILES += %D%/stlink_usb.c
+endif
+if HLADAPTER_ICDI
 DRIVERFILES += %D%/ti_icdi_usb.c
+endif
+if RSHIM
+DRIVERFILES += %D%/rshim.c
 endif
 if OSBDM
 DRIVERFILES += %D%/osbdm.c
@@ -182,4 +187,3 @@ DRIVERHEADERS = \
 	%D%/versaloon/versaloon.h \
 	%D%/versaloon/versaloon_include.h \
 	%D%/versaloon/versaloon_internal.h
-

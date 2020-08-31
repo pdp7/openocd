@@ -226,7 +226,7 @@ static int svf_getline(char **lineptr, size_t *n, FILE *stream);
 
 #define SVF_MAX_BUFFER_SIZE_TO_COMMIT   (1024 * 1024)
 static uint8_t *svf_tdi_buffer, *svf_tdo_buffer, *svf_mask_buffer;
-static int svf_buffer_index, svf_buffer_size ;
+static int svf_buffer_index, svf_buffer_size;
 static int svf_quiet;
 static int svf_nil;
 static int svf_ignore_error;
@@ -246,7 +246,7 @@ static int svf_last_printed_percentage = -1;
  * DEBUG, INFO, ERROR, USER
  */
 #define SVF_BUF_LOG(_lvl, _buf, _nbits, _desc)							\
-	svf_hexbuf_print(LOG_LVL_##_lvl ,  __FILE__, __LINE__, __func__, _buf, _nbits, _desc)
+	svf_hexbuf_print(LOG_LVL_##_lvl,  __FILE__, __LINE__, __func__, _buf, _nbits, _desc)
 
 static void svf_hexbuf_print(int dbg_lvl, const char *file, unsigned line,
 							 const char *function, const uint8_t *buf,
@@ -1310,7 +1310,6 @@ XXR_common:
 		case PIOMAP:
 			LOG_ERROR("PIO and PIOMAP are not supported");
 			return ERROR_FAIL;
-			break;
 		case RUNTEST:
 			/* RUNTEST [run_state] run_count run_clk [min_time SEC [MAXIMUM max_time
 			 * SEC]] [ENDSTATE end_state] */
@@ -1532,7 +1531,6 @@ XXR_common:
 		default:
 			LOG_ERROR("invalid svf command: %s", argus[0]);
 			return ERROR_FAIL;
-			break;
 	}
 
 	if (!svf_quiet) {
@@ -1542,8 +1540,8 @@ XXR_common:
 
 	if (debug_level >= LOG_LVL_DEBUG) {
 		/* for convenient debugging, execute tap if possible */
-		if ((svf_buffer_index > 0) && \
-				(((command != STATE) && (command != RUNTEST)) || \
+		if ((svf_buffer_index > 0) &&
+				(((command != STATE) && (command != RUNTEST)) ||
 						((command == STATE) && (num_of_argu == 2)))) {
 			if (ERROR_OK != svf_execute_tap())
 				return ERROR_FAIL;
@@ -1557,8 +1555,8 @@ XXR_common:
 		/* for fast executing, execute tap if necessary */
 		/* half of the buffer is for the next command */
 		if (((svf_buffer_index >= SVF_MAX_BUFFER_SIZE_TO_COMMIT) ||
-				(svf_check_tdo_para_index >= SVF_CHECK_TDO_PARA_SIZE / 2)) && \
-				(((command != STATE) && (command != RUNTEST)) || \
+				(svf_check_tdo_para_index >= SVF_CHECK_TDO_PARA_SIZE / 2)) &&
+				(((command != STATE) && (command != RUNTEST)) ||
 						((command == STATE) && (num_of_argu == 2))))
 			return svf_execute_tap();
 	}

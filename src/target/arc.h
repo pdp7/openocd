@@ -33,9 +33,14 @@
 #define AUX_PC_REG                      0x6
 #define AUX_STATUS32_REG                0xA
 
+
 #define SET_CORE_FORCE_HALT             BIT(1)
 #define SET_CORE_HALT_BIT               BIT(0)      /* STATUS32[0] = H field */
-#define SET_CORE_ENABLE_INTERRUPTS			BIT(31)
+#define SET_CORE_ENABLE_INTERRUPTS      BIT(31)
+/* STATUS32[5] or AE bit indicates if the processor is in exception state */
+#define SET_CORE_AE_BIT                 BIT(5)
+/* Single instruction step bit in Debug register */
+#define SET_CORE_SINGLE_INSTR_STEP      BIT(11)
 
 #define AUX_STATUS32_REG_HALT_BIT       BIT(0)
 #define AUX_STATUS32_REG_IE_BIT         BIT(31)    /* STATUS32[31] = IE field */
@@ -48,6 +53,30 @@
 
 /* Limit reg_type/reg_type_field  name to 20 symbols */
 #define REG_TYPE_MAX_NAME_LENGTH	20
+
+/* ARC 32bits opcodes */
+#define ARC_SDBBP_32 0x256F003F  /* BRK */
+
+/* ARC 16bits opcodes */
+#define ARC_SDBBP_16 0x7FFF      /* BRK_S */
+
+/* Cache registers */
+#define AUX_IC_IVIC_REG			0X10
+#define IC_IVIC_INVALIDATE		0XFFFFFFFF
+
+#define AUX_DC_IVDC_REG			0X47
+#define DC_IVDC_INVALIDATE		BIT(0)
+#define AUX_DC_CTRL_REG			0X48
+#define DC_CTRL_IM			BIT(6)
+
+/* L2 cache registers */
+#define SLC_AUX_CACHE_CTRL		0x903
+#define L2_CTRL_IM			BIT(6)
+#define L2_CTRL_BS			BIT(8)		/* Busy flag */
+#define SLC_AUX_CACHE_FLUSH		0x904
+#define L2_FLUSH_FL			BIT(0)
+#define SLC_AUX_CACHE_INV		0x905
+#define L2_INV_IV			BIT(0)
 
 struct arc_reg_bitfield {
 	struct reg_data_type_bitfield bitfield;
@@ -97,6 +126,22 @@ struct arc_common {
 
 	struct reg_cache *core_and_aux_cache;
 	struct reg_cache *bcr_cache;
+
+	/* Cache control */
+	bool has_dcache;
+	bool has_icache;
+	bool has_l2cache;
+	/* If true, then D$ has been already flushed since core has been
+	 * halted. */
+	bool dcache_flushed;
+	/* If true, then L2 has been already flushed since core has been
+	 * halted. */
+	bool l2cache_flushed;
+	/* If true, then caches have been already flushed since core has been
+	 * halted. */
+	bool icache_invalidated;
+	bool dcache_invalidated;
+	bool l2cache_invalidated;
 
 	/* Indicate if cach was built (for deinit function) */
 	bool core_aux_cache_built;
@@ -153,6 +198,29 @@ struct arc_common {
 static inline struct arc_common *target_to_arc(struct target *target)
 {
 	return target->arch_info;
+}
+
+/* ----- Inlined functions ------------------------------------------------- */
+
+/**
+ * Convert data in host endianness to the middle endian. This is required to
+ * write 4-byte instructions.
+ */
+static inline void arc_h_u32_to_me(uint8_t *buf, int val)
+{
+	buf[1] = (uint8_t) (val >> 24);
+	buf[0] = (uint8_t) (val >> 16);
+	buf[3] = (uint8_t) (val >> 8);
+	buf[2] = (uint8_t) (val >> 0);
+}
+
+/**
+ * Convert data in middle endian to host endian. This is required to read 32-bit
+ * instruction from little endian ARCs.
+ */
+static inline uint32_t arc_me_to_h_u32(const uint8_t *buf)
+{
+	return (uint32_t)(buf[2] | buf[3] << 8 | buf[0] << 16 | buf[1] << 24);
 }
 
 
@@ -212,5 +280,8 @@ struct reg *arc_reg_get_by_name(struct reg_cache *first,
 
 int arc_reg_get_field(struct target *target, const char *reg_name,
 		const char *field_name, uint32_t *value_ptr);
+
+int arc_cache_flush(struct target *target);
+int arc_cache_invalidate(struct target *target);
 
 #endif /* OPENOCD_TARGET_ARC_H */

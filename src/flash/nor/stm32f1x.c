@@ -359,13 +359,14 @@ static int stm32x_protect_check(struct flash_bank *bank)
 	if (retval != ERROR_OK)
 		return retval;
 
-	for (int i = 0; i < bank->num_prot_blocks; i++)
+	for (unsigned int i = 0; i < bank->num_prot_blocks; i++)
 		bank->prot_blocks[i].is_protected = (protection & (1 << i)) ? 0 : 1;
 
 	return ERROR_OK;
 }
 
-static int stm32x_erase(struct flash_bank *bank, int first, int last)
+static int stm32x_erase(struct flash_bank *bank, unsigned int first,
+		unsigned int last)
 {
 	struct target *target = bank->target;
 
@@ -385,7 +386,7 @@ static int stm32x_erase(struct flash_bank *bank, int first, int last)
 	if (retval != ERROR_OK)
 		return retval;
 
-	for (int i = first; i <= last; i++) {
+	for (unsigned int i = first; i <= last; i++) {
 		retval = target_write_u32(target, stm32x_get_flash_reg(bank, STM32_FLASH_CR), FLASH_PER);
 		if (retval != ERROR_OK)
 			return retval;
@@ -412,7 +413,8 @@ static int stm32x_erase(struct flash_bank *bank, int first, int last)
 	return ERROR_OK;
 }
 
-static int stm32x_protect(struct flash_bank *bank, int set, int first, int last)
+static int stm32x_protect(struct flash_bank *bank, int set, unsigned int first,
+		unsigned int last)
 {
 	struct target *target = bank->target;
 	struct stm32x_flash_bank *stm32x_info = bank->driver_priv;
@@ -432,7 +434,7 @@ static int stm32x_protect(struct flash_bank *bank, int set, int first, int last)
 		return retval;
 	}
 
-	for (int i = first; i <= last; i++) {
+	for (unsigned int i = first; i <= last; i++) {
 		if (set)
 			stm32x_info->option_bytes.protection &= ~(1 << i);
 		else
@@ -714,8 +716,6 @@ static int stm32x_probe(struct flash_bank *bank)
 	/* set page size, protection granularity and max flash size depending on family */
 	switch (device_id & 0xfff) {
 	case 0x440: /* stm32f05x */
-	case 0x444: /* stm32f03x */
-	case 0x445: /* stm32f04x */
 		page_size = 1024;
 		stm32x_info->ppage_size = 4;
 		max_flash_size_in_kb = 64;
@@ -724,7 +724,25 @@ static int stm32x_probe(struct flash_bank *bank)
 		stm32x_info->default_rdp = 0xAA;
 		stm32x_info->can_load_options = true;
 		break;
+	case 0x444: /* stm32f03x */
+	case 0x445: /* stm32f04x */
+		page_size = 1024;
+		stm32x_info->ppage_size = 4;
+		max_flash_size_in_kb = 32;
+		stm32x_info->user_data_offset = 16;
+		stm32x_info->option_offset = 6;
+		stm32x_info->default_rdp = 0xAA;
+		stm32x_info->can_load_options = true;
+		break;
 	case 0x448: /* stm32f07x */
+		page_size = 2048;
+		stm32x_info->ppage_size = 4;
+		max_flash_size_in_kb = 128;
+		stm32x_info->user_data_offset = 16;
+		stm32x_info->option_offset = 6;
+		stm32x_info->default_rdp = 0xAA;
+		stm32x_info->can_load_options = true;
+		break;
 	case 0x442: /* stm32f09x */
 		page_size = 2048;
 		stm32x_info->ppage_size = 4;
@@ -768,7 +786,7 @@ static int stm32x_probe(struct flash_bank *bank)
 	case 0x428: /* stm32f100xx high-density value line */
 		page_size = 2048;
 		stm32x_info->ppage_size = 4;
-		max_flash_size_in_kb = 128;
+		max_flash_size_in_kb = 512;
 		break;
 	case 0x422: /* stm32f302/3xb/c */
 		page_size = 2048;
@@ -1353,8 +1371,7 @@ COMMAND_HANDLER(stm32x_handle_options_write_command)
 			COMMAND_PARSE_NUMBER(u16, CMD_ARGV[1], useropt);
 			CMD_ARGC--;
 			CMD_ARGV++;
-		}
-		else if (stm32x_info->has_dual_banks) {
+		} else if (stm32x_info->has_dual_banks) {
 			if (strcmp("BOOT0", CMD_ARGV[0]) == 0)
 				optionbyte |= (1 << 3);
 			else if (strcmp("BOOT1", CMD_ARGV[0]) == 0)
@@ -1484,7 +1501,7 @@ COMMAND_HANDLER(stm32x_handle_mass_erase_command)
 	retval = stm32x_mass_erase(bank);
 	if (retval == ERROR_OK) {
 		/* set all sectors as erased */
-		for (int i = 0; i < bank->num_sectors; i++)
+		for (unsigned int i = 0; i < bank->num_sectors; i++)
 			bank->sectors[i].is_erased = 1;
 
 		command_print(CMD, "stm32x mass erase complete");

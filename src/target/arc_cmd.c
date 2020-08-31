@@ -383,7 +383,7 @@ static int jim_arc_get_core_reg(Jim_Interp *interp, int argc, Jim_Obj * const *a
 	/* Register number */
 	JIM_CHECK_RETVAL(arc_cmd_jim_get_uint32(&goi, &regnum));
 	if (regnum > CORE_REG_MAX_NUMBER || regnum == CORE_R61_NUM || regnum == CORE_R62_NUM) {
-		Jim_SetResultFormatted(goi.interp, "Core register number %i " \
+		Jim_SetResultFormatted(goi.interp, "Core register number %i "
 			"is invalid. Must less then 64 and not 61 and 62.", regnum);
 		return JIM_ERR;
 	}
@@ -426,7 +426,7 @@ static int jim_arc_set_core_reg(Jim_Interp *interp, int argc, Jim_Obj * const *a
 	/* Register number */
 	JIM_CHECK_RETVAL(arc_cmd_jim_get_uint32(&goi, &regnum));
 	if (regnum > CORE_REG_MAX_NUMBER || regnum == CORE_R61_NUM || regnum == CORE_R62_NUM) {
-		Jim_SetResultFormatted(goi.interp, "Core register number %i " \
+		Jim_SetResultFormatted(goi.interp, "Core register number %i "
 			"is invalid. Must less then 64 and not 61 and 62.", regnum);
 		return JIM_ERR;
 	}
@@ -447,9 +447,9 @@ static const struct command_registration arc_jtag_command_group[] = {
 		.name = "get-aux-reg",
 		.jim_handler = jim_arc_get_aux_reg,
 		.mode = COMMAND_EXEC,
-		.help = "Get AUX register by number. This command does a " \
-			"raw JTAG request that bypasses OpenOCD register cache "\
-			"and thus is unsafe and can have unexpected consequences. "\
+		.help = "Get AUX register by number. This command does a "
+			"raw JTAG request that bypasses OpenOCD register cache "
+			"and thus is unsafe and can have unexpected consequences. "
 			"Use at your own risk.",
 		.usage = "arc jtag get-aux-reg <regnum>"
 	},
@@ -457,9 +457,9 @@ static const struct command_registration arc_jtag_command_group[] = {
 		.name = "set-aux-reg",
 		.jim_handler = jim_arc_set_aux_reg,
 		.mode = COMMAND_EXEC,
-		.help = "Set AUX register by number. This command does a " \
-			"raw JTAG request that bypasses OpenOCD register cache "\
-			"and thus is unsafe and can have unexpected consequences. "\
+		.help = "Set AUX register by number. This command does a "
+			"raw JTAG request that bypasses OpenOCD register cache "
+			"and thus is unsafe and can have unexpected consequences. "
 			"Use at your own risk.",
 		.usage = "arc jtag set-aux-reg <regnum> <value>"
 	},
@@ -467,9 +467,9 @@ static const struct command_registration arc_jtag_command_group[] = {
 		.name = "get-core-reg",
 		.jim_handler = jim_arc_get_core_reg,
 		.mode = COMMAND_EXEC,
-		.help = "Get/Set core register by number. This command does a " \
-			"raw JTAG request that bypasses OpenOCD register cache "\
-			"and thus is unsafe and can have unexpected consequences. "\
+		.help = "Get/Set core register by number. This command does a "
+			"raw JTAG request that bypasses OpenOCD register cache "
+			"and thus is unsafe and can have unexpected consequences. "
 			"Use at your own risk.",
 		.usage = "arc jtag get-core-reg <regnum> [<value>]"
 	},
@@ -477,9 +477,9 @@ static const struct command_registration arc_jtag_command_group[] = {
 		.name = "set-core-reg",
 		.jim_handler = jim_arc_set_core_reg,
 		.mode = COMMAND_EXEC,
-		.help = "Get/Set core register by number. This command does a " \
-			"raw JTAG request that bypasses OpenOCD register cache "\
-			"and thus is unsafe and can have unexpected consequences. "\
+		.help = "Get/Set core register by number. This command does a "
+			"raw JTAG request that bypasses OpenOCD register cache "
+			"and thus is unsafe and can have unexpected consequences. "
 			"Use at your own risk.",
 		.usage = "arc jtag set-core-reg <regnum> [<value>]"
 	},
@@ -678,13 +678,15 @@ static int jim_arc_add_reg(Jim_Interp *interp, int argc, Jim_Obj * const *argv)
 	int type_name_len = strlen(type_name);
 	int e = ERROR_OK;
 
-	/* At least we need to specify 4 parameters: name, number, type and gdb_feature,
-	 * which means there should be 8 arguments */
-	if (goi.argc < 8) {
+	/* At least we need to specify 4 parameters: name, number and gdb_feature,
+	 * which means there should be 6 arguments. Also there can be additional paramters
+	 * "-type <type>", "-g" and  "-core" or "-bcr" which makes maximum 10 parameters. */
+	if (goi.argc < 6 || goi.argc > 10) {
 		free_reg_desc(reg);
 		Jim_SetResultFormatted(goi.interp,
-			"Should be at least 8 argnuments: -name <name> "
-			"-num <num> -type <type> -feature <gdb_feature>.");
+			"Should be at least 6 argnuments and not greater than 10: "
+			" -name <name> -num <num> -feature <gdb_feature> "
+			" [-type <type_name>] [-core|-bcr] [-g].");
 		return JIM_ERR;
 	}
 
@@ -907,10 +909,60 @@ static int jim_arc_get_reg_field(Jim_Interp *interp, int argc, Jim_Obj * const *
 	return JIM_OK;
 }
 
+COMMAND_HANDLER(arc_l1_cache_disable_auto_cmd)
+{
+	bool value;
+	int retval = 0;
+	struct arc_common *arc = target_to_arc(get_current_target(CMD_CTX));
+	retval = CALL_COMMAND_HANDLER(handle_command_parse_bool,
+		&value, "target has caches enabled");
+	arc->has_l2cache = value;
+	arc->has_dcache = value;
+	arc->has_icache = value;
+	return retval;
+}
+
+COMMAND_HANDLER(arc_l2_cache_disable_auto_cmd)
+{
+	struct arc_common *arc = target_to_arc(get_current_target(CMD_CTX));
+	return CALL_COMMAND_HANDLER(handle_command_parse_bool,
+		&arc->has_l2cache, "target has l2 cache enabled");
+}
+
 /* ----- Exported target commands ------------------------------------------ */
 
+const struct command_registration arc_l2_cache_group_handlers[] = {
+	{
+		.name = "auto",
+		.handler = arc_l2_cache_disable_auto_cmd,
+		.mode = COMMAND_ANY,
+		.usage = "(1|0)",
+		.help = "Disable or enable L2",
+	},
+	COMMAND_REGISTRATION_DONE
+};
+
+const struct command_registration arc_cache_group_handlers[] = {
+	{
+		.name = "auto",
+		.handler = arc_l1_cache_disable_auto_cmd,
+		.mode = COMMAND_ANY,
+		.help = "Disable or enable L1",
+		.usage = "(1|0)",
+	},
+	{
+		.name = "l2",
+		.mode = COMMAND_ANY,
+		.help = "L2 cache command group",
+		.usage = "",
+		.chain = arc_l2_cache_group_handlers,
+	},
+	COMMAND_REGISTRATION_DONE
+};
+
+
 static const struct command_registration arc_core_command_handlers[] = {
-{
+	{
 		.name = "add-reg-type-flags",
 		.jim_handler = jim_arc_add_reg_type_flags,
 		.mode = COMMAND_CONFIG,
@@ -964,6 +1016,13 @@ static const struct command_registration arc_core_command_handlers[] = {
 		.help = "ARC JTAG specific commands",
 		.usage = "",
 		.chain = arc_jtag_command_group,
+	},
+	{
+		.name = "cache",
+		.mode = COMMAND_ANY,
+		.help = "cache command group",
+		.usage = "",
+		.chain = arc_cache_group_handlers,
 	},
 	COMMAND_REGISTRATION_DONE
 };

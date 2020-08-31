@@ -79,6 +79,15 @@ static void mem_ap_deinit_target(struct target *target)
 	target->private_config = NULL;
 }
 
+static void mem_ap_deinit_target(struct target *target)
+{
+	LOG_DEBUG("%s", __func__);
+
+	free(target->private_config);
+	free(target->arch_info);
+	return;
+}
+
 static int mem_ap_arch_state(struct target *target)
 {
 	LOG_DEBUG("%s", __func__);

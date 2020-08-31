@@ -1806,6 +1806,7 @@ static int cortex_a_assert_reset(struct target *target)
 
 static int cortex_a_deassert_reset(struct target *target)
 {
+	struct armv7a_common *armv7a = target_to_armv7a(target);
 	int retval;
 
 	LOG_DEBUG(" ");
@@ -3098,6 +3099,7 @@ static void cortex_a_deinit_target(struct target *target)
 	}
 
 	free(cortex_a->brp_list);
+	arm_free_reg_cache(dpm->arm);
 	free(dpm->dbp);
 	free(dpm->dwp);
 	free(target->private_config);

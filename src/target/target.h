@@ -32,6 +32,7 @@
 #define OPENOCD_TARGET_TARGET_H
 
 #include <helper/list.h>
+#include <jim.h>
 
 struct reg;
 struct trace;
@@ -260,6 +261,8 @@ enum target_event {
 	TARGET_EVENT_RESUMED,		/* target resumed to normal execution */
 	TARGET_EVENT_RESUME_START,
 	TARGET_EVENT_RESUME_END,
+	TARGET_EVENT_STEP_START,
+	TARGET_EVENT_STEP_END,
 
 	TARGET_EVENT_GDB_START, /* debugger started execution (step/run) */
 	TARGET_EVENT_GDB_END, /* debugger stopped execution (step/run) */
@@ -293,8 +296,8 @@ enum target_event {
 
 struct target_event_action {
 	enum target_event event;
-	struct Jim_Interp *interp;
-	struct Jim_Obj *body;
+	Jim_Interp *interp;
+	Jim_Obj *body;
 	struct target_event_action *next;
 };
 

@@ -28,6 +28,10 @@
 #include <helper/types.h>
 #include <helper/time_support.h>
 
+/* Both those values are constant across the current spectrum ofr nRF5 devices */
+#define WATCHDOG_REFRESH_REGISTER       0x40010600
+#define WATCHDOG_REFRESH_VALUE          0x6e524635
+
 enum {
 	NRF5_FLASH_BASE = 0x00000000,
 };
@@ -447,7 +451,7 @@ static int nrf5_protect_check_bprot(struct flash_bank *bank)
 	uint32_t bprot_reg = 0;
 	int res;
 
-	for (int i = 0; i < bank->num_sectors; i++) {
+	for (unsigned int i = 0; i < bank->num_sectors; i++) {
 		unsigned int bit = i % 32;
 		if (bit == 0) {
 			unsigned int n_reg = i / 32;
@@ -501,14 +505,15 @@ static int nrf5_protect_check(struct flash_bank *bank)
 		}
 	}
 
-	for (int i = 0; i < bank->num_sectors; i++)
+	for (unsigned int i = 0; i < bank->num_sectors; i++)
 		bank->sectors[i].is_protected =
 			clenr0 != 0xFFFFFFFF && bank->sectors[i].offset < clenr0;
 
 	return ERROR_OK;
 }
 
-static int nrf5_protect(struct flash_bank *bank, int set, int first, int last)
+static int nrf5_protect(struct flash_bank *bank, int set, unsigned int first,
+		unsigned int last)
 {
 	int res;
 	uint32_t clenr0, ppfc;
@@ -570,10 +575,14 @@ static int nrf5_protect(struct flash_bank *bank, int set, int first, int last)
 
 static bool nrf5_info_variant_to_str(uint32_t variant, char *bf)
 {
-	h_u32_to_be((uint8_t *)bf, variant);
-	bf[4] = '\0';
-	if (isalnum(bf[0]) && isalnum(bf[1]) && isalnum(bf[2]) && isalnum(bf[3]))
+	uint8_t b[4];
+
+	h_u32_to_be(b, variant);
+	if (isalnum(b[0]) && isalnum(b[1]) && isalnum(b[2]) && isalnum(b[3])) {
+		memcpy(bf, b, 4);
+		bf[4] = 0;
 		return true;
+	}
 
 	strcpy(bf, "xxxx");
 	return false;
@@ -896,30 +905,6 @@ static int nrf5_erase_page(struct flash_bank *bank,
 	return res;
 }
 
-static const uint8_t nrf5_flash_write_code[] = {
-	/* See contrib/loaders/flash/cortex-m0.S */
-/* <wait_fifo>: */
-	0x0d, 0x68,		/* ldr	r5,	[r1,	#0] */
-	0x00, 0x2d,		/* cmp	r5,	#0 */
-	0x0b, 0xd0,		/* beq.n	1e <exit> */
-	0x4c, 0x68,		/* ldr	r4,	[r1,	#4] */
-	0xac, 0x42,		/* cmp	r4,	r5 */
-	0xf9, 0xd0,		/* beq.n	0 <wait_fifo> */
-	0x20, 0xcc,		/* ldmia	r4!,	{r5} */
-	0x20, 0xc3,		/* stmia	r3!,	{r5} */
-	0x94, 0x42,		/* cmp	r4,	r2 */
-	0x01, 0xd3,		/* bcc.n	18 <no_wrap> */
-	0x0c, 0x46,		/* mov	r4,	r1 */
-	0x08, 0x34,		/* adds	r4,	#8 */
-/* <no_wrap>: */
-	0x4c, 0x60,		/* str	r4, [r1,	#4] */
-	0x04, 0x38,		/* subs	r0, #4 */
-	0xf0, 0xd1,		/* bne.n	0 <wait_fifo> */
-/* <exit>: */
-	0x00, 0xbe		/* bkpt	0x0000 */
-};
-
-
 /* Start a low level flash write for the specified region */
 static int nrf5_ll_flash_write(struct nrf5_info *chip, uint32_t address, const uint8_t *buffer, uint32_t bytes)
 {
@@ -927,9 +912,13 @@ static int nrf5_ll_flash_write(struct nrf5_info *chip, uint32_t address, const u
 	uint32_t buffer_size = 8192;
 	struct working_area *write_algorithm;
 	struct working_area *source;
-	struct reg_param reg_params[4];
+	struct reg_param reg_params[6];
 	struct armv7m_algorithm armv7m_info;
 	int retval = ERROR_OK;
+
+	static const uint8_t nrf5_flash_write_code[] = {
+#include "../../../contrib/loaders/flash/nrf5/nrf5.inc"
+	};
 
 	LOG_DEBUG("Writing buffer to flash address=0x%"PRIx32" bytes=0x%"PRIx32, address, bytes);
 	assert(bytes % 4 == 0);
@@ -981,15 +970,19 @@ static int nrf5_ll_flash_write(struct nrf5_info *chip, uint32_t address, const u
 	init_reg_param(&reg_params[1], "r1", 32, PARAM_OUT);	/* buffer start */
 	init_reg_param(&reg_params[2], "r2", 32, PARAM_OUT);	/* buffer end */
 	init_reg_param(&reg_params[3], "r3", 32, PARAM_IN_OUT);	/* target address */
+	init_reg_param(&reg_params[4], "r6", 32, PARAM_OUT);	/* watchdog refresh value */
+	init_reg_param(&reg_params[5], "r7", 32, PARAM_OUT);	/* watchdog refresh register address */
 
 	buf_set_u32(reg_params[0].value, 0, 32, bytes);
 	buf_set_u32(reg_params[1].value, 0, 32, source->address);
 	buf_set_u32(reg_params[2].value, 0, 32, source->address + source->size);
 	buf_set_u32(reg_params[3].value, 0, 32, address);
+	buf_set_u32(reg_params[4].value, 0, 32, WATCHDOG_REFRESH_VALUE);
+	buf_set_u32(reg_params[5].value, 0, 32, WATCHDOG_REFRESH_REGISTER);
 
 	retval = target_run_flash_async_algorithm(target, buffer, bytes/4, 4,
 			0, NULL,
-			4, reg_params,
+			ARRAY_SIZE(reg_params), reg_params,
 			source->address, source->size,
 			write_algorithm->address, 0,
 			&armv7m_info);
@@ -1001,6 +994,8 @@ static int nrf5_ll_flash_write(struct nrf5_info *chip, uint32_t address, const u
 	destroy_reg_param(&reg_params[1]);
 	destroy_reg_param(&reg_params[2]);
 	destroy_reg_param(&reg_params[3]);
+	destroy_reg_param(&reg_params[4]);
+	destroy_reg_param(&reg_params[5]);
 
 	return retval;
 }
@@ -1033,7 +1028,8 @@ error:
 	return res;
 }
 
-static int nrf5_erase(struct flash_bank *bank, int first, int last)
+static int nrf5_erase(struct flash_bank *bank, unsigned int first,
+		unsigned int last)
 {
 	int res;
 	struct nrf5_info *chip;
@@ -1043,7 +1039,7 @@ static int nrf5_erase(struct flash_bank *bank, int first, int last)
 		return res;
 
 	/* For each sector to be erased */
-	for (int s = first; s <= last && res == ERROR_OK; s++)
+	for (unsigned int s = first; s <= last && res == ERROR_OK; s++)
 		res = nrf5_erase_page(bank, chip, &bank->sectors[s]);
 
 	return res;

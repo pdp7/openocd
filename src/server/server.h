@@ -49,7 +49,7 @@ struct connection {
 	struct sockaddr_in sin;
 	struct command_context *cmd_ctx;
 	struct service *service;
-	int input_pending;
+	bool input_pending;
 	void *priv;
 	struct connection *next;
 };
@@ -80,11 +80,14 @@ int add_service(char *name, const char *port,
 		void *priv);
 int remove_service(const char *name, const char *port);
 
+int server_host_os_entry(void);
+int server_host_os_close(void);
+
 int server_preinit(void);
 int server_init(struct command_context *cmd_ctx);
 int server_quit(void);
 void server_free(void);
-void exit_on_signal(int);
+void exit_on_signal(int sig);
 
 int server_loop(struct command_context *command_context);
 
