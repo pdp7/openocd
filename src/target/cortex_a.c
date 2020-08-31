@@ -1806,7 +1806,6 @@ static int cortex_a_assert_reset(struct target *target)
 
 static int cortex_a_deassert_reset(struct target *target)
 {
-	struct armv7a_common *armv7a = target_to_armv7a(target);
 	int retval;
 
 	LOG_DEBUG(" ");
@@ -1862,12 +1861,13 @@ static int cortex_a_deassert_reset(struct target *target)
 		if (target->state != TARGET_HALTED) {
 				LOG_WARNING("%s: ran after reset and before halt ...",
 				target_name(target));
-			if (!(jtag_reset_config & RESET_HAS_SRST))
-				LOG_WARNING("SRST probably cause powerdown of debug domain - Try "
-								"using \'reset_config none\' to request a soft warm reset");
-			retval = target_halt(target);
-			if (retval != ERROR_OK)
-				return retval;
+			if (target_was_examined(target)) {
+				retval = mem_ap_write_atomic_u32(armv7a->debug_ap,
+						armv7a->debug_base + CPUDBG_DRCR, DRCR_HALT);
+				if (retval != ERROR_OK)
+					return retval;
+			} else
+				target->state = TARGET_UNKNOWN;
 		}
 	}
 
@@ -2862,7 +2862,7 @@ static int cortex_a_examine_first(struct target *target)
 
 	if ((armv7a->debug_base & (1UL<<31)) == 0)
 		LOG_WARNING("Debug base address for target %s has bit 31 set to 0. Access to debug registers will likely fail!\n"
-			    "Please fix the target configuration.", target_name(target));
+				"Please fix the target configuration.", target_name(target));
 
 	retval = mem_ap_read_atomic_u32(armv7a->debug_ap,
 			armv7a->debug_base + CPUDBG_DIDR, &didr);
@@ -2885,7 +2885,7 @@ static int cortex_a_examine_first(struct target *target)
 	cortex_a->cpuid = cpuid;
 
 	retval = mem_ap_read_atomic_u32(armv7a->debug_ap,
-				    armv7a->debug_base + CPUDBG_PRSR, &dbg_osreg);
+					armv7a->debug_base + CPUDBG_PRSR, &dbg_osreg);
 	if (retval != ERROR_OK)
 		return retval;
 	LOG_DEBUG("target->coreid %" PRId32 " DBGPRSR  0x%" PRIx32, target->coreid, dbg_osreg);
@@ -3146,7 +3146,7 @@ static int cortex_a_virt2phys(struct target *target,
 	if (retval != ERROR_OK)
 		return retval;
 	return armv7a_mmu_translate_va_pa(target, (uint32_t)virt,
-						    phys, 1);
+							phys, 1);
 }
 
 COMMAND_HANDLER(cortex_a_handle_cache_info_command)

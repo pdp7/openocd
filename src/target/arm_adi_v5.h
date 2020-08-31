@@ -165,6 +165,8 @@ enum swd_special_seq {
 	SWD_TO_JTAG,
 	SWD_TO_DORMANT,
 	DORMANT_TO_SWD,
+	JTAG_TO_DORMANT,
+	DORMANT_TO_JTAG,
 };
 
 /**
@@ -294,6 +296,9 @@ struct adiv5_dap {
 	/** Flag saying whether to ignore the syspwrupack flag in DAP. Some devices
 	 *  do not set this bit until later in the bringup sequence */
 	bool ignore_syspwrupack;
+
+	/** Does this DAP is in dormant state after Reset? */
+	bool dormant_state;
 };
 
 /**

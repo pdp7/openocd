@@ -47,12 +47,16 @@
 #define KP3_LED_STATE_SUCCESS             0x02u
 #define KP3_LED_STATE_ERROR               0x03u
 
+#define KP3_REQUEST_SET_ACQUIRE_PARAMS    0x91
+#define KP3_ACQUIRE_PARAM_TIMEOUT         0x00
+// Not implemented yet
+#define KP3_ACQUIRE_PARAM_SEQ_TYPE        0x01
+#define KP3_ACQUIRE_PARAM_AP_NUM          0x02
+
 #define INVOKE_CMSIS_DAP(name, ...)       cmsis_dap_adapter_driver.name(__VA_ARGS__)
 
 extern struct adapter_driver kitprog3_adapter_driver;
 extern struct jtag_interface kitprog3_dap_interface ;
-
-static bool power_dropout_detected;
 
 struct acquire_config {
 	bool configured;
@@ -69,12 +73,32 @@ struct power_config {
 	uint16_t voltage;
 };
 
+struct kp3_version {
+	char *fw_loader_dir;
+	size_t major;
+	size_t minor;
+	size_t build;
+};
+
+static struct kp3_version g_kp3_latest_ver;
 static struct acquire_config acquire_config;
 static struct power_config power_config;
+static bool voltage_changed;
+static uint16_t initial_voltage;
 
-static uint16_t g_kit_fw_major;
-static uint16_t g_kit_fw_minor;
-static uint16_t g_fw_build_number;
+/** ***********************************************************************************************
+ * @brief Compares KitProg3 versions represented by kp3_version structure
+ * @return -1 (a < b), 0 (a == b) or +1 (a > b)
+ *************************************************************************************************/
+static int kitprog3_compare_versions(struct kp3_version *a, struct kp3_version *b) {
+	if (a->major < b->major) return -1;
+	if (a->major > b->major) return 1;
+	if (a->minor < b->minor) return -1;
+	if (a->minor > b->minor) return 1;
+	if (a->build < b->build) return -1;
+	if (a->build > b->build) return 1;
+	return 0;
+}
 
 /** ***********************************************************************************************
  * @brief Performs USB transaction in HID mode.
@@ -95,6 +119,9 @@ static int kitprog3_request_hid(int timeout, bool has_cmd_stat)
 		return ERROR_FAIL;
 
 	do {
+		/* Avoid warning during PSoC64 acquisition */
+		keep_alive();
+
 		hr = hid_read_timeout(dap->hid_handle, packet_buffer, packet_size, timeout);
 		if (hr == -1 || hr == 0)
 			return ERROR_FAIL;
@@ -128,6 +155,9 @@ static int kitprog3_request_bulk(int timeout, bool has_cmd_stat)
 		return ERROR_FAIL;
 
 	do {
+		/* Avoid warning during PSoC64 acquisition */
+		keep_alive();
+
 		hr = libusb_bulk_transfer(dap->bulk_handle, (2 | LIBUSB_ENDPOINT_IN),
 				packet_buffer, packet_size - 1, &transferred,
 				(unsigned)timeout);
@@ -160,6 +190,26 @@ static int kitprog3_usb_request(int timeout, bool has_cmd_stat)
 		hr = kitprog3_request_bulk(timeout, has_cmd_stat);
 
 	return hr;
+}
+
+/** ***********************************************************************************************
+ * @brief Shows "Please update the firmware message"
+ *************************************************************************************************/
+static void kitprog3_show_update_fw_message(bool is_fatal)
+{
+	const char * const message = {
+		"\n*******************************************************************************************"
+		"\n* KitProg firmware is out of date, please update to the latest version (%zu.%zu.%zu)"
+		"\n* using fw-loader tool which can be found in the following folder"
+		"\n* %s"
+		"\n*******************************************************************************************"
+	};
+
+	const struct kp3_version *v = &g_kp3_latest_ver;
+	if(is_fatal)
+		LOG_ERROR(message, v->major, v->minor, v->build, v->fw_loader_dir);
+	else
+		LOG_WARNING(message, v->major, v->minor, v->build, v->fw_loader_dir);
 }
 
 /** ***********************************************************************************************
@@ -236,7 +286,7 @@ static int kitprog3_power_control(void)
 		/* Report dropout if voltage has changed by more than 5% */
 		const int max_error  = KP3_TARGET_VOLTAGE_MAX_ERROR_PC * power_config.voltage / 100;
 		if(abs(target_voltage - power_config.voltage) > max_error)
-			power_dropout_detected = true;
+			voltage_changed = true;
 
 		LOG_INFO("kitprog3: powering up target device using KitProg3 (VTarg = %d mV)",
 			power_config.voltage);
@@ -302,7 +352,7 @@ static int kitprog3_acquire_psoc(void)
 	if(acquire_config.acquire_timeout) {
 		dap->packet_buffer[0] = 0;
 		dap->packet_buffer[1] = KP3_REQUEST_ACQUIRE_PARAM;
-		dap->packet_buffer[2] = 0;
+		dap->packet_buffer[2] = KP3_ACQUIRE_PARAM_TIMEOUT;
 		dap->packet_buffer[3] = acquire_config.acquire_timeout;
 
 		hr = kitprog3_usb_request(KP3_USB_TIMEOUT, true);
@@ -312,7 +362,7 @@ static int kitprog3_acquire_psoc(void)
 
 		dap->packet_buffer[0] = 0;
 		dap->packet_buffer[1] = KP3_REQUEST_ACQUIRE_PARAM;
-		dap->packet_buffer[2] = 2;
+		dap->packet_buffer[2] = KP3_ACQUIRE_PARAM_AP_NUM;
 		dap->packet_buffer[3] = acquire_config.acquire_ap;
 
 		hr = kitprog3_usb_request(KP3_USB_TIMEOUT, true);
@@ -368,10 +418,7 @@ static int kitprog3_check_version(void)
 	int is_kp3 = strcmp("1.10", (char *)&dap->packet_buffer[2]);
 
 	if(!is_kp3) {
-		LOG_ERROR("*******************************************************************************************");
-		LOG_ERROR("* KitProg firmware is out of date, please update to the latest version using fw-loader at *");
-		LOG_ERROR("* ModusToolbox/tools/fw-loader                                                            *");
-		LOG_ERROR("*******************************************************************************************");
+		kitprog3_show_update_fw_message(true);
 		return ERROR_FAIL;
 	}
 
@@ -384,17 +431,18 @@ static int kitprog3_check_version(void)
 		return hr;
 	}
 
-	uint16_t kit_fw_major = dap->packet_buffer[2] + (dap->packet_buffer[3] << 8);
-	uint16_t kit_fw_minor = dap->packet_buffer[4] + (dap->packet_buffer[5] << 8);
-	uint16_t fw_build_number = dap->packet_buffer[10] + (dap->packet_buffer[11] << 8);
+	struct kp3_version kp3_ver;
+	kp3_ver.major = dap->packet_buffer[2] + (dap->packet_buffer[3] << 8);
+	kp3_ver.minor = dap->packet_buffer[4] + (dap->packet_buffer[5] << 8);
+	kp3_ver.build = dap->packet_buffer[10] + (dap->packet_buffer[11] << 8);
 
-	LOG_INFO("KitProg3: FW version: %d.%d.%d", kit_fw_major, kit_fw_minor, fw_build_number);
+	LOG_INFO("KitProg3: FW version: %zu.%zu.%zu", kp3_ver.major, kp3_ver.minor, kp3_ver.build);
+	if(kitprog3_compare_versions(&kp3_ver, &g_kp3_latest_ver) < 0)
+		kitprog3_show_update_fw_message(false);
 
 	/* Workaround for KP3 FW < 1.20.591 in BULK mode */
-	if( (kit_fw_major < 1 ||
-		(kit_fw_major == 1 && kit_fw_minor < 20) ||
-		(kit_fw_major == 1 && kit_fw_minor == 20 && fw_build_number < 591)) &&
-		!cmsis_dap_handle->is_hid)
+	if(kitprog3_compare_versions(&kp3_ver, &(struct kp3_version){NULL, 1, 20, 591}) < 0 \
+			&& !cmsis_dap_handle->is_hid)
 	{
 		cmsis_dap_handle->packet_count = 1;
 		LOG_INFO("KitProg3: Pipelined transfers disabled, please update the firmware");
@@ -402,26 +450,42 @@ static int kitprog3_check_version(void)
 		LOG_INFO("KitProg3: Pipelined transfers enabled");
 	}
 
-	if(!g_kit_fw_major)
-		return ERROR_OK;
-
-	if(kit_fw_major < g_kit_fw_major)
-		goto warn_user;
-
-	if(kit_fw_minor < g_kit_fw_minor)
-		goto warn_user;
-
-	if(fw_build_number < g_fw_build_number)
-		goto warn_user;
-
 	return ERROR_OK;
+}
 
-warn_user:
-	LOG_WARNING("*******************************************************************************************");
-	LOG_WARNING("* KitProg firmware is out of date, please update to the latest version using fw-loader at *");
-	LOG_WARNING("* ModusToolbox/tools/fw-loader                                                            *");
-	LOG_WARNING("*******************************************************************************************");
-	return ERROR_OK;
+/** ***********************************************************************************************
+ * @brief Resets Acquisition parameters to their default values
+ *************************************************************************************************/
+static void kitprog3_reset_acquire_params(void)
+{
+	struct cmsis_dap *dap = cmsis_dap_handle;
+
+	/* Reset all possibly overridden KitProg3 parameters :
+	 * Parameter = 0: Set Acquire Timeout to zero
+	 * set to zero - reset to default */
+	dap->packet_buffer[0] = 0;
+	dap->packet_buffer[1] = KP3_REQUEST_SET_ACQUIRE_PARAMS;
+	dap->packet_buffer[2] = KP3_ACQUIRE_PARAM_TIMEOUT;
+	dap->packet_buffer[3] = 0;
+	kitprog3_usb_request(KP3_USB_TIMEOUT, true);
+
+#if defined(KP3_ACQUIRE_PARAM_SEQ_TYPE)
+	/* Parameter = 1: Set type of DAP handshake
+	 * set to zero - swd line reset for PSoC4, jtag-to-swd for others */
+	dap->packet_buffer[0] = 0;
+	dap->packet_buffer[1] = KP3_REQUEST_SET_ACQUIRE_PARAMS;
+	dap->packet_buffer[2] = KP3_ACQUIRE_PARAM_SEQ_TYPE;
+	dap->packet_buffer[3] = 0;
+	kitprog3_usb_request(KP3_USB_TIMEOUT, true);
+#endif
+
+	/* Parameter = 2:  Set DAP AP through which the test mode bit will be set
+	 * set to zero - SysAP */
+	dap->packet_buffer[0] = 0;
+	dap->packet_buffer[1] = KP3_REQUEST_SET_ACQUIRE_PARAMS;
+	dap->packet_buffer[2] = KP3_ACQUIRE_PARAM_AP_NUM;
+	dap->packet_buffer[3] = 0;
+	kitprog3_usb_request(KP3_USB_TIMEOUT, true);
 }
 
 /** ***********************************************************************************************
@@ -440,6 +504,8 @@ static int kitprog3_init(void)
 	if (hr != ERROR_OK)
 		return hr;
 
+	kitprog3_reset_acquire_params();
+
 	hr = kitprog3_check_version();
 	if (hr != ERROR_OK)
 		return hr;
@@ -450,10 +516,9 @@ static int kitprog3_init(void)
 			return hr;
 	}
 
-	uint16_t voltage;
-	hr = kitprog3_get_power(&voltage);
+	hr = kitprog3_get_power(&initial_voltage);
 	if (hr == ERROR_OK)
-		LOG_INFO("VTarget = %u.%03u V", voltage / 1000, voltage % 1000);
+		LOG_INFO("VTarget = %u.%03u V", initial_voltage / 1000, initial_voltage % 1000);
 
 	if (acquire_config.configured)
 		kitprog3_acquire_psoc();
@@ -470,6 +535,9 @@ static int kitprog3_init(void)
 static int kitprog3_quit(void)
 {
 	kitprog3_led_control(KP3_LED_STATE_READY);
+	kitprog3_reset_acquire_params();
+	free(g_kp3_latest_ver.fw_loader_dir); /* free(NULL) is OK */
+
 	return INVOKE_CMSIS_DAP(quit);
 }
 
@@ -589,18 +657,18 @@ COMMAND_HANDLER(cmsis_dap_handle_get_version_command)
 		return hr;
 	}
 
-	uint16_t kit_fw_major = dap->packet_buffer[2] + (dap->packet_buffer[3] << 8);
-	uint16_t kit_fw_minor = dap->packet_buffer[4] + (dap->packet_buffer[5] << 8);
+	struct kp3_version kp3_ver;
+	kp3_ver.major = dap->packet_buffer[2] + (dap->packet_buffer[3] << 8);
+	kp3_ver.minor = dap->packet_buffer[4] + (dap->packet_buffer[5] << 8);
+	kp3_ver.build = dap->packet_buffer[10] + (dap->packet_buffer[11] << 8);
 
 	uint16_t kit_hw_id = dap->packet_buffer[6] + (dap->packet_buffer[7] << 8);
-
 	uint8_t kit_prot_major = dap->packet_buffer[8];
 	uint8_t kit_prot_minor = dap->packet_buffer[9];
 
-	uint16_t fw_build_number = dap->packet_buffer[10] + (dap->packet_buffer[11] << 8);
-
-	command_print(CMD, "KitProg3 FW Ver = %u.%u.%u, HW ID = %u, KHPI Ver = %u.%u",
-				 kit_fw_major, kit_fw_minor, fw_build_number, kit_hw_id, kit_prot_major, kit_prot_minor);
+	command_print(CMD, "KitProg3 FW Ver = %zu.%zu.%zu, HW ID = %u, KHPI Ver = %u.%u",
+				kp3_ver.major, kp3_ver.minor, kp3_ver.build,
+				kit_hw_id, kit_prot_major, kit_prot_minor);
 
 	return ERROR_OK;
 }
@@ -618,38 +686,26 @@ COMMAND_HANDLER(cmsis_dap_handle_led_command)
 
 COMMAND_HANDLER(cmsis_dap_handle_set_latest_version_command)
 {
-	int hr = ERROR_FAIL;
-
-	if (CMD_ARGC != 1)
+	if (CMD_ARGC != 2)
 		return ERROR_COMMAND_ARGUMENT_INVALID;
 
-	char *copy = strdup(CMD_ARGV[0]);
-	if(!copy)
-		return ERROR_FAIL;
+	struct kp3_version kp3_ver;
 
-	char *tok = strtok(copy, ".");
-	if(!tok)
-		goto exit;
+	if(sscanf(CMD_ARGV[1], "%zu.%zu.%zu", &kp3_ver.major, &kp3_ver.minor, &kp3_ver.build) != 3) {
+		LOG_ERROR("KitProg3: Invalid version format, should match %%zu.%%zu.%%zu pattern");
+		return ERROR_COMMAND_ARGUMENT_INVALID;
+	}
 
-	g_kit_fw_major = atoi(tok);
+	/* Remember only the latest version found */
+	if(kitprog3_compare_versions(&kp3_ver, &g_kp3_latest_ver) > 0) {
+		free(g_kp3_latest_ver.fw_loader_dir); /* free(NULL) is OK */
+		g_kp3_latest_ver.fw_loader_dir = strdup(CMD_ARGV[0]);
+		g_kp3_latest_ver.major = kp3_ver.major;
+		g_kp3_latest_ver.minor = kp3_ver.minor;
+		g_kp3_latest_ver.build = kp3_ver.build;
+	}
 
-	tok = strtok(NULL, ".");
-	if(!tok)
-		goto exit;
-
-	g_kit_fw_minor = atoi(tok);
-
-	tok = strtok(NULL, ".");
-	if(!tok)
-		goto exit;
-
-	g_fw_build_number = atoi(tok);
-
-	hr = ERROR_OK;
-
-exit:
-	free(copy);
-	return hr;
+	return ERROR_OK;
 }
 
 static const struct command_registration kitprog3_subcommand_handlers[] = {
@@ -727,10 +783,39 @@ static const struct command_registration kitprog3_command_handlers[] = {
 	COMMAND_REGISTRATION_DONE
 };
 
+#define POWER_STABLE_TIMEOUT_MS 5000l
 static int kitprog3_power_dropout(int *power_dropout)
 {
-	*power_dropout = (int)power_dropout_detected;
-	power_dropout_detected = false;
+	const int max_error  = KP3_TARGET_VOLTAGE_MAX_ERROR_PC * initial_voltage / 100;
+	static int64_t last_mv_change_time;
+
+	uint16_t now_mv;
+	int hr = kitprog3_get_power(&now_mv);
+	if (hr != ERROR_OK)
+		return hr;
+
+	bool dropout = false;
+	static uint16_t prev_mv;
+
+	const bool mv_wrong = abs(initial_voltage - now_mv) > max_error;
+	const bool mv_now_changed = abs(prev_mv - now_mv) > max_error;
+	prev_mv = now_mv;
+
+	if(mv_now_changed)
+		last_mv_change_time = timeval_ms();
+
+	if (mv_wrong)
+		dropout = true;
+
+	if (dropout && timeval_ms() - last_mv_change_time > POWER_STABLE_TIMEOUT_MS) {
+		LOG_INFO("Voltage is stable for more than %lu sec, assuming power is good",
+				 POWER_STABLE_TIMEOUT_MS / 1000);
+		initial_voltage = now_mv;
+		dropout = false;
+	}
+
+	*power_dropout = (int)(voltage_changed | dropout);
+	voltage_changed = false;
 
 	return ERROR_OK;
 }

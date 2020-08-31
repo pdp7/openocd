@@ -971,7 +971,6 @@ static int gdb_new_connection(struct connection *connection)
 	gdb_connection->target_desc.tdesc = NULL;
 	gdb_connection->target_desc.tdesc_length = 0;
 	gdb_connection->thread_list = NULL;
-	gdb_connection->extended_protocol = false;
 
 	/* send ACK to GDB for debug request */
 	gdb_write(connection, "+", 1);

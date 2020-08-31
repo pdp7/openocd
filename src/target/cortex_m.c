@@ -640,11 +640,9 @@ static int cortex_m_poll(struct target *target)
 	 */
 
 	if (target->state == TARGET_UNKNOWN) {
-		/* check if processor is retiring instructions */
-		if (cortex_m->dcb_dhcsr & S_RETIRE_ST) {
-			target->state = TARGET_RUNNING;
-			retval = ERROR_OK;
-		}
+		/* Populate initial state */
+		target->state = cortex_m->dcb_dhcsr & S_HALT ? TARGET_HALTED : TARGET_RUNNING;
+		retval = ERROR_OK;
 	}
 
 	/* Check that target is truly halted, since the target could be resumed externally */
@@ -2101,6 +2099,19 @@ int cortex_m_examine(struct target *target)
 
 		if(!armv7m->sau_feature)
 			armv7m_disable_register_range(target, ARMV8M_MSP_NS, ARMV8M_CONTROL_NS);
+
+		/* Enable debug requests */
+		retval = target_read_u32(target, DCB_DHCSR, &cortex_m->dcb_dhcsr);
+		if (retval != ERROR_OK)
+			return retval;
+		if (!(cortex_m->dcb_dhcsr & C_DEBUGEN)) {
+			uint32_t dhcsr = (cortex_m->dcb_dhcsr | C_DEBUGEN) & ~(C_HALT | C_STEP | C_MASKINTS);
+
+			retval = target_write_u32(target, DCB_DHCSR, DBGKEY | (dhcsr & 0x0000FFFFUL));
+			if (retval != ERROR_OK)
+				return retval;
+			cortex_m->dcb_dhcsr = dhcsr;
+		}
 
 		/* Configure trace modules */
 		retval = target_write_u32(target, DCB_DEMCR, TRCENA | armv7m->demcr);

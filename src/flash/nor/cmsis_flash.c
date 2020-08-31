@@ -201,7 +201,7 @@ static int cmsis_flash_unload_algo(struct cmsis_flash *algo, struct target *targ
  * @param num_sectors will be populated with total number of sectors
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
  *************************************************************************************************/
-static int cmsis_flash_get_sector_num(struct cmsis_flash *algo, int *num_sectors)
+static int cmsis_flash_get_sector_num(struct cmsis_flash *algo, unsigned int *num_sectors)
 {
 	*num_sectors = 0;
 	size_t idx = 0;
@@ -602,8 +602,8 @@ static int cmsis_flash_probe(struct flash_bank *bank)
 		return ERROR_FAIL;
 	}
 
-	int real_sec_num = 0;
-	for (int i = 0; i < bank->num_sectors; i++) {
+	unsigned int real_sec_num = 0;
+	for (unsigned int i = 0; i < bank->num_sectors; i++) {
 		hr = cmsis_flash_get_sector_info(algo, i, &bank->sectors[i].offset,
 				&bank->sectors[i].size);
 
@@ -678,7 +678,7 @@ static int cmsis_flash_blank_check(struct flash_bank *bank)
 
 	progress_init(bank->num_sectors, BLANKCHECK);
 
-	for (int i = 0; i < bank->num_sectors; i++) {
+	for (unsigned int i = 0; i < bank->num_sectors; i++) {
 		hr = cmsis_algo_blank_check(algo, target,
 				bank->base + bank->sectors[i].offset,
 				 bank->sectors[i].size, &is_erased);
@@ -686,7 +686,7 @@ static int cmsis_flash_blank_check(struct flash_bank *bank)
 
 		if (hr != ERROR_OK)
 			goto release;
-		
+
 		progress_sofar(i);
 	}
 
@@ -702,7 +702,7 @@ release:
  *************************************************************************************************/
 static int cmsis_flash_protect_check(struct flash_bank *bank)
 {
-	for (int i = 0; i < bank->num_sectors; i++)
+	for (unsigned int i = 0; i < bank->num_sectors; i++)
 		bank->sectors[i].is_protected = false;
 
 	return ERROR_OK;
@@ -712,7 +712,7 @@ static int cmsis_flash_protect_check(struct flash_bank *bank)
  * @brief Dummy function, protect operation is not supported by this driver
  * @return ERROR_FAIL always
  *************************************************************************************************/
-static int cmsis_flash_protect(struct flash_bank *bank, int set, int first, int last)
+static int cmsis_flash_protect(struct flash_bank *bank, int set, unsigned int first, unsigned int last)
 {
 	(void)bank; (void)set; (void)first; (void)last;
 
@@ -727,7 +727,7 @@ static int cmsis_flash_protect(struct flash_bank *bank, int set, int first, int 
  * @param last last sector to erase
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
  *************************************************************************************************/
-static int cmsis_flash_erase(struct flash_bank *bank, int first, int last)
+static int cmsis_flash_erase(struct flash_bank *bank, unsigned int first, unsigned int last)
 {
 	struct cmsis_flash *algo = bank->driver_priv;
 	struct target *target = bank->target;
@@ -745,7 +745,7 @@ static int cmsis_flash_erase(struct flash_bank *bank, int first, int last)
 		goto release;
 	}
 
-	for (int i = first; i <= last; i++) {
+	for (unsigned int i = first; i <= last; i++) {
 		hr = cmsis_algo_erase_sector(algo, target, bank->base + bank->sectors[i].offset);
 		if (hr != ERROR_OK)
 			goto release;
@@ -886,7 +886,7 @@ static int cmsis_flash_program(struct flash_bank *bank, const uint8_t *buffer, u
 	buf_set_u32(reg_params[2].value, 0, 32, algo->algo_wa->address + algo->algo_wa->size);
 
 	hr = target_run_flash_async_algorithm(target, buffer, rp.num_pages, rp.page_size,
-			0, NULL, 3, reg_params,
+			0, NULL, ARRAY_SIZE(reg_params), reg_params,
 			wa_buffer->address, wa_buffer->size,
 			wa_wrapper->address, 0, &armv7m_algo);
 
@@ -968,6 +968,7 @@ FLASH_BANK_COMMAND_HANDLER(cmsis_flash_bank_command)
 			algo->prefer_sector_erase = true;
 		} else {
 			LOG_ERROR("cmsis_flash: unknown parameter '%s'", CMD_ARGV[8]);
+			free(algo);
 			return ERROR_COMMAND_SYNTAX_ERROR;
 		}
 	}

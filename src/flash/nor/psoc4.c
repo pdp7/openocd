@@ -254,6 +254,8 @@ const struct psoc4_chip_family psoc4_families[] = {
 	{ 0xB5, "PSoC 4100S Plus",                      .flags = 0, .spcif_ver = spcif_v3 },
 	{ 0xB8, "PSoC 4100S Plus/PSoC 4500",            .flags = 0, .spcif_ver = spcif_v3 },
 	{ 0xBE, "PSoC 4100S Max",                       .flags = 0, .spcif_ver = spcif_v3 },
+	{ 0xC0, "CCG6DF USB Type-C Port Controller",    .flags = 0, .spcif_ver = spcif_v3 },
+	{ 0xC3, "CCG6SF USB Type-C Port Controller",    .flags = 0, .spcif_ver = spcif_v3 },
 	{ 0,    "Unknown",                              .flags = 0, .spcif_ver = spcif_unknown }
 };
 
@@ -263,7 +265,7 @@ struct psoc4_flash_bank {
 	uint32_t die_num_rows;
 	uint32_t user_bank_size;
 	int chip_protection;
-	int num_macros;
+	unsigned int num_macros;
 	bool probed;
 	uint16_t family_id;
 	bool legacy_family;
@@ -282,7 +284,7 @@ static bool is_sflash_base_v2(uint16_t family_id)
 
 static bool is_sflash_bank(struct flash_bank *bank)
 {
-	return 	(bank->base & PSOC4_SFLASH_MACRO0) == PSOC4_SFLASH_MACRO0 || 
+	return 	(bank->base & PSOC4_SFLASH_MACRO0) == PSOC4_SFLASH_MACRO0 ||
 			(bank->base & PSOC4_SFLASH_MACRO0_v2) == PSOC4_SFLASH_MACRO0_v2;
 }
 
@@ -462,7 +464,7 @@ static int psoc4_sysreq_mem_ap(struct flash_bank *bank, uint8_t cmd,
 		if (retval != ERROR_OK)
 			goto cleanup_mem;
 	}
-	
+
 	retval = target_write_u32(target, psoc4_info->cpuss_sysreq_addr, PSOC4_SROM_SYSREQ_BIT | PSOC4_SROM_HMASTER_BIT | cmd);
 	if (retval != ERROR_OK)
 		goto cleanup_mem;
@@ -689,7 +691,7 @@ static int psoc4_get_silicon_id(struct flash_bank *bank, bool no_algo, uint32_t 
 		if (retval != ERROR_OK)
 			return retval;
 	}
-	
+
 
 	if ((part0 & PSOC4_SROM_STATUS_MASK) != PSOC4_SROM_STATUS_SUCCEEDED) {
 		LOG_ERROR("sysreq error - \"%s\"", psoc4_decode_sysreq_error(part0));
@@ -834,11 +836,11 @@ static int psoc4_flash_prot_read(struct flash_bank *bank, uint8_t *buffer, uint3
 {
 	struct target *target = bank->target;
 	struct psoc4_flash_bank *psoc4_info = bank->driver_priv;
-	
+
 	uint32_t prot_addr = psoc4_info->sflash_base;
 	uint32_t prot_addr_incr = psoc4_info->sflash_descr->flash_prot_addr_increment;
 	uint32_t bytes_per_macro = psoc4_info->die_num_rows / psoc4_info->num_macros / 8;
-	
+
 	if ((psoc4_info->num_rows / 8) < offset + count) {
 		LOG_ERROR("invalid size");
 		return ERROR_FAIL;
@@ -983,7 +985,7 @@ static int psoc4_reset_halt(struct target *target)
  *************************************************************************************************/
 static int psoc4_mass_erase(struct flash_bank *bank)
 {
-	int i;
+	unsigned int i;
 	int retval;
 	uint8_t protection;
 	struct target *target = bank->target;
@@ -1013,7 +1015,7 @@ static int psoc4_mass_erase(struct flash_bank *bank)
 	}
 	/* Unlock path */
 	else {
-		/* 
+		/*
 		*	If we are protected perform the following:
 		*	Call System ROM Api to move to the OPEN state (this also erases entire flash)
 		*	perform soft reset in order to apply new protection and reexamine target
@@ -1072,7 +1074,7 @@ static int write_flash_macro_protection(struct flash_bank *bank, int chip_level_
 		LOG_ERROR("no memory for row buffer");
 		return ERROR_FAIL;
 	}
-	
+
 	memset(sysrq_buffer, 0, param_sz + count);
 	memcpy(sysrq_buffer + 2, buffer, count);
 
@@ -1089,7 +1091,7 @@ static int write_flash_macro_protection(struct flash_bank *bank, int chip_level_
 	/* Call "Write Protection" system ROM API */
 	retval = psoc4_sysreq(bank, PSOC4_CMD_WRITE_PROTECTION,
 			chip_level_prot | (macro << 8), NULL, 0, NULL);
-	
+
 cleanup:
 	free(sysrq_buffer);
 
@@ -1104,7 +1106,7 @@ cleanup:
  * @param last The last sector to (un)project
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
  *************************************************************************************************/
-static int psoc4_protect(struct flash_bank *bank, int set, int first, int last)
+static int psoc4_protect(struct flash_bank *bank, int set, unsigned int first, unsigned int last)
 {
 	struct target *target = bank->target;
 	struct psoc4_flash_bank *psoc4_info = bank->driver_priv;
@@ -1116,7 +1118,7 @@ static int psoc4_protect(struct flash_bank *bank, int set, int first, int last)
 	if (retval != ERROR_OK)
 		return retval;
 
-	int num_bits = bank->num_sectors;
+	unsigned int num_bits = bank->num_sectors;
 	if (num_bits > PSOC4_ROWS_PER_MACRO)
 		num_bits = PSOC4_ROWS_PER_MACRO;
 
@@ -1128,7 +1130,7 @@ static int psoc4_protect(struct flash_bank *bank, int set, int first, int last)
 		return ERROR_FAIL;
 	}
 
-	int i, m, sect;
+	unsigned int i, m, sect;
 	for (i = first; i <= last && i < bank->num_sectors; i++)
 		bank->sectors[i].is_protected = set;
 
@@ -1391,7 +1393,7 @@ static int psoc4_flash_prot_write(struct flash_bank *bank, const uint8_t *buffer
  * @param last the last sector to erase
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
  *************************************************************************************************/
-static int psoc4_flash_prot_erase(struct flash_bank *bank, int first, int last)
+static int psoc4_flash_prot_erase(struct flash_bank *bank, unsigned int first, unsigned int last)
 {
 	struct target *target = bank->target;
 	struct psoc4_flash_bank *psoc4_info = bank->driver_priv;
@@ -1407,7 +1409,7 @@ static int psoc4_flash_prot_erase(struct flash_bank *bank, int first, int last)
 	if (retval != ERROR_OK)
 		return retval;
 
-	for(int macro = 0; macro < psoc4_info->num_macros; ++macro) {
+	for(unsigned int macro = 0; macro < psoc4_info->num_macros; ++macro) {
 		retval = write_flash_macro_protection(bank, PSOC4_CHIP_PROT_OPEN, empty, prot_sz, 0, macro);
 		if (retval != ERROR_OK)
 			return retval;
@@ -1443,7 +1445,7 @@ static int psoc4_sflash_erase(struct flash_bank *bank, int first, int last)
  * @param last The last sector to erase
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
  *************************************************************************************************/
-static int psoc4_erase(struct flash_bank *bank, int first, int last)
+static int psoc4_erase(struct flash_bank *bank, unsigned int first, unsigned int last)
 {
 	if (is_sflash_bank(bank))
 		return psoc4_sflash_erase(bank, first, last);
@@ -1455,6 +1457,25 @@ static int psoc4_erase(struct flash_bank *bank, int first, int last)
 	return ERROR_OK;
 }
 
+/**************************************************************************************************
+ * Rounds the 32-bit integer up to the next highest power of two, e.g.
+ * 1000 -> 1024, 1024 -> 1024, 2040 -> 2048 etc.
+ * Borrowed from the 'Bit Twiddling Hacks', see
+ * https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
+ *************************************************************************************************/
+static inline uint32_t next_pow2(uint32_t val)
+{
+	assert(val != 0);
+
+	val--;
+	val |= (val >> 1);
+	val |= (val >> 2);
+	val |= (val >> 4);
+	val |= (val >> 8);
+	val |= (val >> 16);
+
+	return val + 1;
+}
 
 /**************************************************************************************************
  * @brief Reads flash wounding information from the SFlash
@@ -1462,19 +1483,29 @@ static int psoc4_erase(struct flash_bank *bank, int first, int last)
  * @param wounding pointer to variable, will be populated with wounding value.
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
  *************************************************************************************************/
-static int psoc4_get_wounding(struct flash_bank *bank, uint32_t *wounding)
+static uint32_t psoc4_get_wounded_flash_size(struct flash_bank *bank, uint32_t die_flash_size, uint32_t *wounded_flash)
 {
 	struct psoc4_flash_bank *psoc4_info = bank->driver_priv;
 	struct target *target = bank->target;
-
 	uint32_t wounding_addr = psoc4_info->sflash_descr->wounding_offs + psoc4_info->sflash_base;
-	int retval = target_read_u32(target, wounding_addr, wounding);
+	uint32_t wounding;
+
+	*wounded_flash = die_flash_size;
+	int retval = target_read_u32(target, wounding_addr, &wounding);
 	if (retval != ERROR_OK) {
-		*wounding = 0;
 		return retval;
 	}
 
-	*wounding = (*wounding >> 20) & 0x07; /* 22:20 stores FLASH wounding bits */
+	wounding = (wounding >> 20) & 0x07; /* 22:20 stores FLASH wounding bits */
+
+	/* Wounding should be calculated from the next power of two*/
+	if (wounding > 0)
+	{
+		die_flash_size = next_pow2(die_flash_size);
+		*wounded_flash = die_flash_size >> wounding;
+	}
+
+
 	return ERROR_OK;
 }
 
@@ -1574,7 +1605,7 @@ exit:
 
 
 /**************************************************************************************************
- * @brief Determines bank size based on UDD if device exists there or read from silicon 
+ * @brief Determines bank size based on UDD if device exists there or read from silicon
  * and prints detailed info about the connected silicon
  * @param bank current flash bank
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
@@ -1610,7 +1641,7 @@ void psoc4_decode_silicon_info(struct flash_bank *bank)
 			LOG_USER("Warn:\tChip protection state is %s. Chip's resources access is locked down.", psoc4_decode_chip_protection(protection));
 			LOG_USER("\tThe state can be set back to OPEN but only after completely erasing the flash.");
 			LOG_USER("\tTo do so, perform erase operation with PSOC4_USE_MEM_AP variable set.");
-			
+
 			g_info_displayed = true;
 		}
 		goto error_exit;
@@ -1662,7 +1693,7 @@ void psoc4_decode_silicon_info(struct flash_bank *bank)
 	}
 
 	free(command);
-	
+
 	char si_rev_major = "XABCDEFGHIJKLMNOP"[si_revision_id >> 4u];
 	char si_rev_minor = "X0123456789abcdef"[si_revision_id & 0x0F];
 	LOG_USER("*****************************************");
@@ -1674,11 +1705,7 @@ void psoc4_decode_silicon_info(struct flash_bank *bank)
 	}
 	/* if device is not available in UDD, read wounding register to get the real flash size */
 	else {
-		uint32_t wounding = 0;
-		psoc4_get_wounding(bank, &wounding);
-		udd_mflash_size = flash_size_in_kb * 1024u;
-		if (wounding > 0)
-			udd_mflash_size = udd_mflash_size >> wounding;
+		psoc4_get_wounded_flash_size(bank, flash_size_in_kb * 1024u, &udd_mflash_size);
 	}
 	LOG_USER("** Detected Family: %s", psoc4_family_by_id(si_family_id)->name);
 	LOG_USER("** Detected Main Flash size, kb: %d", udd_mflash_size / 1024u);
@@ -1733,7 +1760,7 @@ static int psoc4_probe(struct flash_bank *bank)
 	psoc4_info->die_num_rows = num_rows;
 
 	/* check number of flash macros */
-	if (num_macros != (num_rows + PSOC4_ROWS_PER_MACRO - 1) / PSOC4_ROWS_PER_MACRO) 
+	if (num_macros != (num_rows + PSOC4_ROWS_PER_MACRO - 1) / PSOC4_ROWS_PER_MACRO)
 		LOG_WARNING("Number of macros does not correspond with flash size!");
 
 	/* if the user sets the size manually then ignore the probed value
@@ -1742,6 +1769,11 @@ static int psoc4_probe(struct flash_bank *bank)
 		LOG_INFO("ignoring flash probed value, using configured bank size");
 		flash_size_in_kb = psoc4_info->user_bank_size / 1024;
 		num_rows = flash_size_in_kb * 1024 / row_size;
+	}
+	else {
+		uint32_t mflash_size;
+		psoc4_get_wounded_flash_size(bank, flash_size_in_kb * 1024u, &mflash_size);
+		num_rows = mflash_size / row_size;
 	}
 
 	if (bank->sectors)
@@ -1809,8 +1841,8 @@ static int psoc4_flash_prot_probe(struct flash_bank *bank)
 	if (bank->sectors == NULL)
 		return ERROR_FAIL;
 
-	bank->write_start_alignment = bank->size;
-	bank->write_end_alignment = bank->size;
+	bank->write_start_alignment = FLASH_WRITE_ALIGN_SECTOR;
+	bank->write_end_alignment = FLASH_WRITE_ALIGN_SECTOR;
 	bank->is_memory_mapped = false;
 
 	psoc4_info->probed = true;
@@ -1949,7 +1981,7 @@ static const struct command_registration psoc4_exec_command_handlers[] = {
 		.usage = "",
 		.help = "Prints detailed info about the connected silicon",
 	},
-	
+
 	COMMAND_REGISTRATION_DONE
 };
 

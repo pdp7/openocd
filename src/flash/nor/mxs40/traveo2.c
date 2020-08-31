@@ -25,11 +25,6 @@
 #include "flash/nor/imp.h"
 #include "target/target.h"
 #include "target/cortex_m.h"
-#include "target/breakpoints.h"
-#include "target/target_type.h"
-#include "time_support.h"
-#include "target/algorithm.h"
-#include "target/image.h"
 #include "flash/progress.h"
 
 #define MEM_SFLASH_SIZE                32768u
@@ -117,6 +112,15 @@ const struct mxs40_regs traveo2_8m_regs = {
 };
 
 static bool g_ecc_enabled;
+
+// Define SFlash layout (USER, TOC2, NAR, KEY)
+// All regions must have '0xEE' attribute except NAR - '0xC0'
+static const struct sflash_region traveo2_safe_sflash_regions[4] = {
+	{0x17000800, 0x800, 0xEE},
+	{0x17001A00, 0x200, 0xC0},
+	{0x17006400, 0xC00, 0xEE},
+	{0x17007C00, 0x200, 0xEE},
+};
 
 /** ***********************************************************************************************
  * @brief Configures ECC error reporting on Traveo-II devices
@@ -298,7 +302,7 @@ static size_t traveo2_erase_builder(struct flash_bank *bank, int first, int last
  * @param last last sector to erase
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
  *************************************************************************************************/
-static int traveo2_erase(struct flash_bank *bank, int first, int last)
+static int traveo2_erase(struct flash_bank *bank, unsigned int first, unsigned int last)
 {
 	struct mxs40_bank_info *info = bank->driver_priv;
 
@@ -317,7 +321,7 @@ static int traveo2_erase(struct flash_bank *bank, int first, int last)
 		goto exit;
 
 	progress_init(last - first + 1, ERASING);
-	for (int i = first; i <= last; i++) {
+	for (unsigned int i = first; i <= last; i++) {
 		hr = mxs40_erase_row(bank, bank->base + bank->sectors[i].offset, true);
 		if (hr != ERROR_OK)
 			goto exit;
@@ -483,6 +487,7 @@ static void traveo2_flash_bank_command_inner(struct flash_bank *bank)
 	info->erase_algo_size = sizeof(traveo2_erase_algo);
 	info->size_override = bank->size;
 	info->prepare_function = traveo2_prepare;
+	info->sflash_regions = traveo2_safe_sflash_regions;
 
 	/* Bank Size has special encoding in TVII (number of large and small sectors)
 	 * nullify value in bank->size to not confuse the user. Size will be populated

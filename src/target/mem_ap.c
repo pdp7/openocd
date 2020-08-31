@@ -71,17 +71,6 @@ static int mem_ap_init_target(struct command_context *cmd_ctx, struct target *ta
 static void mem_ap_deinit_target(struct target *target)
 {
 	LOG_DEBUG("%s", __func__);
-	target->state = TARGET_UNKNOWN;
-
-	free(target->arch_info);
-	free(target->private_config);
-	target->arch_info = NULL;
-	target->private_config = NULL;
-}
-
-static void mem_ap_deinit_target(struct target *target)
-{
-	LOG_DEBUG("%s", __func__);
 
 	free(target->private_config);
 	free(target->arch_info);

@@ -1321,12 +1321,12 @@ err:
 }
 
 /* Erase range of sectors */
-static int cmspi_erase(struct flash_bank *bank, int first, int last)
+static int cmspi_erase(struct flash_bank *bank, unsigned int first, unsigned int last)
 {
 	struct target *target = bank->target;
 	struct cmspi_flash_bank *cmspi_info = bank->driver_priv;
 	int retval = ERROR_OK;
-	int sector;
+	unsigned int sector;
 
 	LOG_DEBUG("%s: from sector %d to sector %d", __func__, first, last);
 
@@ -1345,7 +1345,7 @@ static int cmspi_erase(struct flash_bank *bank, int first, int last)
 		return ERROR_FLASH_OPER_UNSUPPORTED;
 	}
 
-	if ((first < 0) || (last < first) || (last >= bank->num_sectors)) {
+	if ((last < first) || (last >= bank->num_sectors)) {
 		LOG_ERROR("Flash sector invalid");
 		return ERROR_FLASH_SECTOR_INVALID;
 	}
@@ -1570,7 +1570,8 @@ static int cmspi_blank_check(struct flash_bank *bank)
 	struct sector_info erase_check_info;
 	uint32_t code_size, maxsize, exit_point, result, port;
 	uint8_t cmd;
-	int num_sectors, sector, index, count, retval;
+	unsigned int num_sectors, sector, count, index;
+	int retval;
 	const uint32_t erased = 0x00FF;
 
 	if (target->state != TARGET_HALTED) {
@@ -1763,9 +1764,9 @@ err:
 }
 
 static int cmspi_protect(struct flash_bank *bank, int set,
-	int first, int last)
+	unsigned int first, unsigned int last)
 {
-	int sector;
+	unsigned int sector;
 
 	for (sector = first; sector <= last; sector++)
 		bank->sectors[sector].is_protected = set;
@@ -1986,7 +1987,7 @@ static int cmspi_write(struct flash_bank *bank, const uint8_t *buffer,
 {
 	struct target *target = bank->target;
 	struct cmspi_flash_bank *cmspi_info = bank->driver_priv;
-	int sector;
+	unsigned int sector;
 
 	LOG_DEBUG("%s: offset=0x%08" PRIx32 " count=0x%08" PRIx32,
 		__func__, offset, count);
@@ -2316,7 +2317,8 @@ static int cmspi_probe(struct flash_bank *bank)
 	struct flash_sector *sectors;
 	const struct flash_device *p;
 	uint32_t id = 0;
-	int sector, retval;
+	unsigned int sector;
+	int retval;
 
 	if (cmspi_info->probed) {
 		bank->size = 0;
@@ -2452,7 +2454,8 @@ COMMAND_HANDLER(cmspi_handle_mass_erase)
 	struct cmspi_flash_bank *cmspi_info;
 	struct duration bench;
 	uint32_t port, data;
-	int retval, sector;
+	int retval;
+	unsigned int sector;
 	uint8_t *buffer = NULL;
 
 	LOG_DEBUG("%s", __func__);
@@ -2793,7 +2796,7 @@ COMMAND_HANDLER(cmspi_handle_set)
 		return ERROR_FAIL;
 	}
 
-	for (int sector = 0; sector < bank->num_sectors; sector++) {
+	for (unsigned int sector = 0; sector < bank->num_sectors; sector++) {
 		sectors[sector].offset = sector * (cmspi_info->dev.sectorsize);
 		sectors[sector].size = cmspi_info->dev.sectorsize;
 		sectors[sector].is_erased = -1;

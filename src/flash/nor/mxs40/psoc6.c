@@ -25,12 +25,8 @@
 #include "flash/nor/imp.h"
 #include "target/target.h"
 #include "target/cortex_m.h"
-#include "target/breakpoints.h"
-#include "target/target_type.h"
-#include "time_support.h"
-#include "target/algorithm.h"
-#include "target/image.h"
 #include "flash/progress.h"
+#include "rtos/rtos.h"
 
 #define KiB(x)   ((x) << 10u)
 #define MiB(x)   ((x) << 20u)
@@ -108,6 +104,15 @@ const struct mxs40_regs macaw_regs = {
 	.ipc_intr = MEM_IPC2_INTR_MASK,
 	.ipc_intr_msk = IPC_INTR_MASK_1_CORE,
 	.vtbase = { MEM_VTBASE2_CM0, 0, },
+};
+
+// Define SFlash layout (USER, TOC2, NAR, KEY)
+// All regions must have '0xEE' attribute except NAR - '0xC0'
+static const struct sflash_region psoc6_safe_sflash_regions[4] = {
+	{0x16000800, 0x800, 0xEE},
+	{0x16001A00, 0x200, 0xC0},
+	{0x16005A00, 0xC00, 0xEE},
+	{0x16007C00, 0x400, 0xEE},
 };
 
 /** ***********************************************************************************************
@@ -225,7 +230,7 @@ static size_t psoc6_erase_builder(struct flash_bank *bank, int first, int last, 
  * @param last last sector to erase
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
  *************************************************************************************************/
-static int psoc6_erase(struct flash_bank *bank, int first, int last)
+static int psoc6_erase(struct flash_bank *bank, unsigned int first, unsigned int last)
 {
 	struct mxs40_bank_info *info = bank->driver_priv;
 
@@ -251,7 +256,7 @@ static int psoc6_erase(struct flash_bank *bank, int first, int last)
 	assert(sector_size != 0);
 
 	/* Number of rows in single sector */
-	const int rows_in_sector = sector_size / info->page_size;
+	const unsigned int rows_in_sector = sector_size / info->page_size;
 
 	progress_init(last - first + 1, ERASING);
 	while (last >= first) {
@@ -298,8 +303,8 @@ FLASH_BANK_COMMAND_HANDLER(psoc6_ble2_flash_bank_command)
 	info->program_algo_size = sizeof(p6_program_algo);
 	info->erase_algo_p = p6_erase_algo;
 	info->erase_algo_size = sizeof(p6_erase_algo);
-
 	info->regs = &psoc6_ble2_regs;
+	info->sflash_regions = psoc6_safe_sflash_regions;
 	info->size_override = bank->size;
 	bank->driver_priv = info;
 
@@ -325,6 +330,7 @@ FLASH_BANK_COMMAND_HANDLER(psoc6_2m_flash_bank_command)
 	info->erase_algo_p = p6_2m_erase_algo;
 	info->erase_algo_size = sizeof(p6_2m_erase_algo);
 	info->regs = &psoc6_2m_regs;
+	info->sflash_regions = psoc6_safe_sflash_regions;
 	info->size_override = bank->size;
 	bank->driver_priv = info;
 
@@ -344,8 +350,8 @@ COMMAND_HANDLER(psoc6_handle_secure_acquire)
 	if(CMD_ARGC != 4)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
-    uint32_t magic_addr;
-    COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], magic_addr);
+	uint32_t magic_addr;
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], magic_addr);
 
 	if(strcmp(CMD_ARGV[1], "run") == 0) {
 		acquire_mode_halt = false;
@@ -429,11 +435,6 @@ COMMAND_HANDLER(psoc6_handle_secure_acquire)
 			LOG_WARNING("No handshake from the target, continuing anyway");
 	}
 
-	target->examined = false;
-	hr = target_examine_one(target);
-	if(hr != ERROR_OK)
-		return hr;
-
 	hr = target_poll(target);
 	if(hr != ERROR_OK)
 		return hr;
@@ -452,6 +453,10 @@ COMMAND_HANDLER(psoc6_handle_secure_acquire)
 		if(hr != ERROR_OK)
 			return hr;
 	}
+
+	/* Wipe-out previous RTOS state, if any */
+	if(target->rtos_wipe_on_reset_halt)
+		rtos_wipe(target);
 
 	return ERROR_OK;
 }

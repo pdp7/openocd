@@ -27,7 +27,6 @@
 #include "target/target.h"
 #include "target/cortex_m.h"
 #include "target/breakpoints.h"
-#include "target/target_type.h"
 #include "time_support.h"
 #include "target/algorithm.h"
 #include "target/image.h"
@@ -38,10 +37,6 @@
 static struct working_area *g_stack_area;
 static struct armv7m_algorithm g_armv7m_info;
 static uint32_t g_sflash_restrictions;
-
-/* Safe SFLASH regions */
-static size_t g_num_sflash_regions;
-static struct row_region *g_sflash_regions;
 static bool g_sromcall_prepare_called;
 
 enum operation {
@@ -523,7 +518,7 @@ bool mxs40_flash_bank_matches(struct flash_bank *bank, const uint32_t *addr_arra
  * @param op type of operation to check safety for
  * @return true if flash bank belongs to Safe Supervisory Flash region
  *************************************************************************************************/
-static bool mxs40_is_safe_sflash_page(uint32_t addr, enum operation op)
+static bool mxs40_is_safe_sflash_page(struct mxs40_bank_info *info, uint32_t addr, enum operation op)
 {
 	assert(addr % 512 == 0);
 
@@ -531,15 +526,15 @@ static bool mxs40_is_safe_sflash_page(uint32_t addr, enum operation op)
 	if (op == PROGRAM && g_sflash_restrictions == 3)
 		return true;
 
-	for (size_t i = 0; i < g_num_sflash_regions; i++) {
-		target_addr_t region_start = g_sflash_regions[i].addr;
-		uint32_t region_size = g_sflash_regions[i].size;
+	for (size_t i = 0; i < 4; i++) {
+		target_addr_t region_start = info->sflash_regions[i].addr;
+		uint32_t region_size = info->sflash_regions[i].size;
 
 		if (addr >= region_start && addr < region_start + region_size) {
 			if(op == ERASE) {
-				return (g_sflash_regions[i].restrictions & (1u << (g_sflash_restrictions + 0)));
+				return (info->sflash_regions[i].flags & (1u << (g_sflash_restrictions + 0)));
 			} else { /* op == PROGRAM */
-				return (g_sflash_regions[i].restrictions & (1u << (g_sflash_restrictions + 4)));
+				return (info->sflash_regions[i].flags & (1u << (g_sflash_restrictions + 4)));
 			}
 		}
 	}
@@ -668,7 +663,7 @@ int mxs40_protect_check(struct flash_bank *bank)
 			break;
 	}
 
-	for (int i = 0; i < bank->num_sectors; i++)
+	for (unsigned int i = 0; i < bank->num_sectors; i++)
 		bank->sectors[i].is_protected = is_protected;
 
 	return ERROR_OK;
@@ -678,7 +673,7 @@ int mxs40_protect_check(struct flash_bank *bank)
  * @brief Dummy function, device does not support flash bank protection
  * @return ERROR_OK always
  *************************************************************************************************/
-int mxs40_protect(struct flash_bank *bank, int set, int first, int last)
+int mxs40_protect(struct flash_bank *bank, int set, unsigned int first, unsigned int last)
 {
 	(void)bank; (void)set; (void)first; (void)last;
 
@@ -756,7 +751,7 @@ int mxs40_erase_sflash(struct flash_bank *bank, int first, int last)
 	progress_init(count / info->page_size, ERASING);
 	for (size_t i = 0; i < count / info->page_size; i++) {
 		const uint32_t row_addr = bank->base + offset + i * info->page_size;
-		if (mxs40_is_safe_sflash_page(row_addr, ERASE)) {
+		if (mxs40_is_safe_sflash_page(info, row_addr, ERASE)) {
 			hr = mxs40_program_row(bank, row_addr, buffer, is_sflash);
 			if (hr != ERROR_OK)
 				LOG_ERROR("Failed to program Flash at address 0x%08X", row_addr);
@@ -859,8 +854,8 @@ int mxs40_erase_with_algo(struct flash_bank *bank, int first, int last, erase_bu
 	if (hr != ERROR_OK)
 		goto err_free_wa_algo;
 
-	/* Allocate circular buffer */
-	hr = target_alloc_working_area(target, 8 * sizeof(uint32_t) + 8, &wa_buffer);
+	/* Allocate circular buffer for 16 addresses, this should be sufficient */
+	hr = target_alloc_working_area(target, 16 * sizeof(uint32_t) + 8, &wa_buffer);
 	if(hr != ERROR_OK)
 		goto err_free_wa_stack;
 
@@ -882,7 +877,7 @@ int mxs40_erase_with_algo(struct flash_bank *bank, int first, int last, erase_bu
 
 	progress_init(0, ERASING);
 	hr = target_run_flash_async_algorithm(target, (const uint8_t *)address_buffer, num_addresses_in_buffer,
-			sizeof(uint32_t), 0, NULL, 4, reg_params,
+			sizeof(uint32_t), 0, NULL, ARRAY_SIZE(reg_params), reg_params,
 			wa_buffer->address, wa_buffer->size,
 			wa_algorithm->address, 0, &armv7m_algo);
 
@@ -990,7 +985,7 @@ int mxs40_program(struct flash_bank *bank, const uint8_t *buffer, uint32_t offse
 	progress_init(count / info->page_size, PROGRAMMING);
 	for (size_t i = 0; i < count / info->page_size; i++) {
 		const uint32_t page_addr = bank->base + offset + i * info->page_size;
-		const bool is_safe_sflash_page = mxs40_is_safe_sflash_page(page_addr, PROGRAM);
+		const bool is_safe_sflash_page = mxs40_is_safe_sflash_page(info, page_addr, PROGRAM);
 
 		if (!is_sflash || is_safe_sflash_page) {
 			hr = mxs40_program_row(bank, page_addr, buffer, is_sflash);
@@ -1060,19 +1055,19 @@ int mxs40_program_with_algo(struct flash_bank *bank, const uint8_t *buffer,
 	if (hr != ERROR_OK)
 		goto err_free_wa_algo;
 
-	/* Try to allocate as large RAM Buffer as possible starting form 128 Page Buffers */
-	uint32_t buffer_size = 128 * info->page_size;
-
-	while (target_alloc_working_area_try(target, buffer_size + 8, &wa_buffer) != ERROR_OK) {
-		buffer_size -= info->page_size;
-		if (buffer_size <= 4 * info->page_size) {
-			LOG_WARNING("Failed to allocate Circular Buffer, falling back to DAP mode");
-			hr = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
-			goto err_free_wa_stack;
-		}
+	/* Try to allocate as large RAM Buffer as possible */
+	const uint32_t wa_avail = target_get_working_area_avail(target);
+	uint32_t num_rows = (wa_avail - 8) / info->page_size;
+	if (num_rows <= 4) {
+		LOG_WARNING("Failed to allocate Circular Buffer, falling back to DAP mode");
+		hr = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		goto err_free_wa_stack;
 	}
 
-	LOG_DEBUG("Allocated %u bytes for circular buffer", buffer_size);
+	hr = target_alloc_working_area(target, num_rows * info->page_size + 8, &wa_buffer);
+	assert(hr == ERROR_OK);
+
+	LOG_DEBUG("Allocated buffer for %d pages (%d bytes)", num_rows, num_rows * info->page_size);
 
 	struct armv7m_algorithm armv7m_algo;
 	armv7m_algo.common_magic = ARMV7M_COMMON_MAGIC;
@@ -1092,7 +1087,7 @@ int mxs40_program_with_algo(struct flash_bank *bank, const uint8_t *buffer,
 	buf_set_u32(reg_params[4].value, 0, 32, wa_stack->address + wa_stack->size);
 
 	hr = target_run_flash_async_algorithm(target, buffer, count / info->page_size,
-			info->page_size, 0, NULL, 5, reg_params,
+			info->page_size, 0, NULL, ARRAY_SIZE(reg_params), reg_params,
 			wa_buffer->address, wa_buffer->size,
 			wa_algorithm->address, 0, &armv7m_algo);
 
@@ -1135,16 +1130,27 @@ err_free_wa_algo:
  *************************************************************************************************/
 static int mxs40_reset_halt(struct target *target, enum reset_halt_mode mode)
 {
-	int hr;
-	uint32_t reset_addr;
+	/* Update target state */
+	int hr = target_poll(target);
+	if(hr != ERROR_OK)
+		return hr;
 
-	if (target->state != TARGET_HALTED) {
+	/* Poll again if we came here right from Reset
+	 * or target_halt() will not skip writing C_HALT bit */
+	if(target->state == TARGET_RESET) {
+		hr = target_poll(target);
+		if(hr != ERROR_OK)
+			return hr;
+	}
+
+	/* Halt the target if it is running */
+	if(target->state == TARGET_RUNNING) {
 		hr = target_halt(target);
-		if (hr != ERROR_OK)
+		if(hr != ERROR_OK)
 			return hr;
 
-		target_wait_state(target, TARGET_HALTED, IPC_TIMEOUT_MS);
-		if (hr != ERROR_OK)
+		hr = target_wait_state(target, TARGET_HALTED, IPC_TIMEOUT_MS);
+		if(hr != ERROR_OK)
 			return hr;
 	}
 
@@ -1155,14 +1161,11 @@ static int mxs40_reset_halt(struct target *target, enum reset_halt_mode mode)
 		return ERROR_FAIL;
 	}
 
-	const struct mxs40_regs *regs = info->regs;
-
 	/* Read Vector Offset register */
 	uint32_t vt_base;
-	const uint32_t vt_offset_reg = regs->vtbase[target->coreid];
-	hr = target_read_u32(target, vt_offset_reg, &vt_base);
+	hr = target_read_u32(target, info->regs->vtbase[target->coreid], &vt_base);
 	if (hr != ERROR_OK)
-		return ERROR_OK;
+		return hr;
 
 	/* Invalid value means flash is empty */
 	vt_base &= 0xFFFFFF00;
@@ -1172,6 +1175,7 @@ static int mxs40_reset_halt(struct target *target, enum reset_halt_mode mode)
 	}
 
 	/* Read Reset Vector value */
+	uint32_t reset_addr;
 	hr = target_read_u32(target, vt_base + 4, &reset_addr);
 	if (hr != ERROR_OK)
 		return hr;
@@ -1186,8 +1190,6 @@ static int mxs40_reset_halt(struct target *target, enum reset_halt_mode mode)
 	hr = breakpoint_add(target, reset_addr, 2, BKPT_HARD);
 	if (hr != ERROR_OK)
 		return hr;
-
-	const struct armv7m_common *cm = target_to_armv7m(target);
 
 	/* MXS40 patform reboots immediatelly after issuing SYSRESETREQ / VECTRESET
 	 * this disables SWD/JTAG pins momentarily and may break communication
@@ -1206,31 +1208,33 @@ static int mxs40_reset_halt(struct target *target, enum reset_halt_mode mode)
 		rst_mask = AIRCR_VECTRESET;
 	}
 
+	const struct armv7m_common *armv7m = target_to_armv7m(target);
+
 	/* Reset the CM0 by asserting SYSRESETREQ. This will also reset CM4 */
 	LOG_INFO("%s: bkpt @0x%08X, issuing %s", target->cmd_name, reset_addr, mode_str);
-	mem_ap_write_atomic_u32(cm->debug_ap, NVIC_AIRCR,
+	mem_ap_write_atomic_u32(armv7m->debug_ap, NVIC_AIRCR,
 		AIRCR_VECTKEY | rst_mask);
 
-	dap_invalidate_cache(cm->debug_ap->dap);
+	jtag_sleep(jtag_get_nsrst_delay() * 1000u);
+
+	/* Target is now under RESET */
+	target->state = TARGET_RESET;
+
+	/* Register cache is now invalid */
 	register_cache_invalidate(target->reg_cache);
 
-	/* Target is now running, call appropriate callbacks */
-	target->state = TARGET_RUNNING;
-	target_call_event_callbacks(target, TARGET_EVENT_RESUMED);
-
-	const enum log_levels lvl = change_debug_level(LOG_LVL_USER);
-	alive_sleep(jtag_get_nsrst_delay());
+	/* Wait for debug interface to be ready */
 	struct timeout to;
 	mxs40_timeout_init(&to, IPC_TIMEOUT_MS);
 	while(!mxs40_timeout_expired(&to)) {
-		dap_dp_init(cm->debug_ap->dap);
-		hr = cortex_m_examine(target);
-		if(hr == ERROR_OK)
-			break;
-		alive_sleep(5);
+		if( dap_dp_init(armv7m->debug_ap->dap) != ERROR_OK ||
+			target_examine_one(target) != ERROR_OK         ||
+			target_poll(target) != ERROR_OK)
+			continue;
+		break;
 	}
-	change_debug_level(lvl);
 
+	/* Finally wait for the target to halt on break point */
 	target_wait_state(target, TARGET_HALTED, IPC_TIMEOUT_MS);
 
 	/* Remove the break point */
@@ -1308,45 +1312,12 @@ COMMAND_HANDLER(mxs40_handle_sflash_restrictions)
 	return ERROR_OK;
 }
 
-COMMAND_HANDLER(mxs40_handle_add_safe_sflash_region)
-{
-	if (CMD_ARGC != 3)
-		return ERROR_COMMAND_SYNTAX_ERROR;
-
-	target_addr_t addr;
-	uint32_t size;
-	uint32_t restrictions;
-
-	COMMAND_PARSE_ADDRESS(CMD_ARGV[0], addr);
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], size);
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], restrictions);
-
-	struct row_region *tmp;
-	tmp = realloc(g_sflash_regions, (g_num_sflash_regions + 1)*sizeof(struct row_region));
-	if (tmp == NULL)
-		return ERROR_FAIL;
-
-	g_sflash_regions = tmp;
-	g_sflash_regions[g_num_sflash_regions].addr = addr;
-	g_sflash_regions[g_num_sflash_regions].size = size;
-	g_sflash_regions[g_num_sflash_regions].restrictions = restrictions;
-
-	g_num_sflash_regions++;
-	return ERROR_OK;
-}
-
 /** ***********************************************************************************************
  * @brief Deallocates private driver structures
  * @param bank - the bank being destroyed
  *************************************************************************************************/
 void mxs40_free_driver_priv(struct flash_bank *bank)
 {
-	if(g_num_sflash_regions) {
-		free(g_sflash_regions);
-		g_sflash_regions = NULL;
-		g_num_sflash_regions = 0;
-	}
-
 	free(bank->driver_priv);
 	bank->driver_priv = NULL;
 }
@@ -1487,13 +1458,6 @@ const struct command_registration mxs40_exec_command_handlers[] = {
 		.usage = "<0|1|2|3>",
 		.help = "Controls SFlash programming restrictions: 0:Writes disallowed, "
 				"1:USER+TOC+KEY, 2:USER+TOC+KEY+NAR, 3:Whole region",
-	},
-	{
-		.name = "add_safe_sflash_region",
-		.handler = mxs40_handle_add_safe_sflash_region,
-		.mode = COMMAND_ANY,
-		.usage = "<address> <size> <restrictions>",
-		.help = "Defines safe SFlash ranges",
 	},
 	{
 		.name = "set_region_size",

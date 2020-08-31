@@ -127,6 +127,12 @@ struct efuse_regions {
 	uint32_t    secure_access_size;
 } ;
 
+struct sflash_region {
+	uint32_t addr;
+	uint32_t size;
+	uint8_t flags;
+};
+
 struct mxs40_bank_info {
 	bool is_probed;
 	bool ppu_read_protected;
@@ -138,18 +144,13 @@ struct mxs40_bank_info {
 	const uint8_t *erase_algo_p;
 	const struct mxs40_regs *regs;
 	const struct efuse_regions *efuse_regions;
+	const struct sflash_region *sflash_regions;
 	int (*prepare_function) (struct flash_bank *bank);
 };
 
 struct timeout {
 	int64_t start_time;
 	long timeout_ms;
-};
-
-struct row_region {
-	target_addr_t addr;
-	uint32_t size;
-	uint32_t restrictions;
 };
 
 extern const struct command_registration mxs40_exec_command_handlers[];
@@ -265,7 +266,7 @@ int mxs40_protect_check(struct flash_bank *bank);
  * @brief Dummy function, device does not support flash bank protection
  * @return ERROR_OK always
  *************************************************************************************************/
-int mxs40_protect(struct flash_bank *bank, int set, int first, int last);
+int mxs40_protect(struct flash_bank *bank, int set, unsigned int first, unsigned int last);
 
 /** ***********************************************************************************************
  * @brief MXS40 patform_get_info Displays human-readable information about acquired device
@@ -350,7 +351,7 @@ int mxs40_program_with_algo(struct flash_bank *bank, const uint8_t *buffer, uint
  * @param last last sector to erase
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
  *************************************************************************************************/
-int efuse_erase(struct flash_bank *bank, int first, int last);
+int efuse_erase(struct flash_bank *bank, unsigned int first, unsigned int last);
 
 /** ***********************************************************************************************
  * @brief Programs EFuse region

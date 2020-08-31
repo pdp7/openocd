@@ -120,7 +120,13 @@ static int swd_connect(struct adiv5_dap *dap)
 
 	/* Note, debugport_init() does setup too */
 	for(int attempts = 0; attempts < 10; attempts++) {
-		swd->switch_seq(JTAG_TO_SWD);
+		if(dap->dormant_state) {
+			/* Do not break DAPs which are in JTAG mode after Reset */
+			swd->switch_seq(JTAG_TO_DORMANT);
+			swd->switch_seq(DORMANT_TO_SWD);
+		} else {
+			swd->switch_seq(JTAG_TO_SWD);
+		}
 
 		/* Clear link state, including the SELECT cache. */
 		dap->do_reconnect = false;
@@ -325,7 +331,7 @@ static int swd_run(struct adiv5_dap *dap)
 /** Put the SWJ-DP back to JTAG mode */
 static void swd_quit(struct adiv5_dap *dap)
 {
-	LOG_INFO("Powering down Debug Domains...");
+	LOG_INFO("%s: powering down debug domain...", adiv5_dap_name(dap));
 	int hr1 = dap_queue_dp_write(dap, DP_CTRL_STAT, 0);
 	int hr2 = dap_dp_poll_register(dap, DP_CTRL_STAT, CDBGPWRUPACK | CSYSPWRUPACK, 0, 100);
 
@@ -333,7 +339,11 @@ static void swd_quit(struct adiv5_dap *dap)
 		LOG_WARNING("Failed to power down Debug Domains");
 
 	const struct swd_driver *swd = adiv5_dap_swd_driver(dap);
-	swd->switch_seq(SWD_TO_JTAG);
+	if(dap->dormant_state) {
+		swd->switch_seq(SWD_TO_DORMANT);
+	} else {
+		swd->switch_seq(SWD_TO_JTAG);
+	}
 	/* flush the queue before exit */
 	swd->run();
 }

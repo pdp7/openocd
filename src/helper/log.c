@@ -122,9 +122,12 @@ static void log_puts(enum log_levels level,
 		} else {
 			/* if we are using gdb through pipes then we do not want any output
 			 * to the pipe otherwise we get repeated strings */
-			if (level == LOG_LVL_ERROR && log_output == stdout) {
+			if ((level == LOG_LVL_ERROR && log_output == stdout) ||
+					strstr(string, "Started by GNU MCU Eclipse")) { /* <- the worst hack I've ever seen */
 				fprintf(stderr, "%s%s",
 					(level > LOG_LVL_USER) ? log_strings[level + 1] : "", string);
+
+				fflush(stderr);
 			} else {
 				fprintf(log_output, "%s%s",
 					(level > LOG_LVL_USER) ? log_strings[level + 1] : "", string);

@@ -676,8 +676,7 @@ static int efuse_p6_ble2_to_secure(struct flash_bank *bank, bool is_debug, const
 		secure_bit_addr = P6_EFUSE_LIFE_CYCLE_SECURE_BIT;
 
 	hr = efuse_blow_bit(bank, P6_EFUSE_LIFECYCLE_OFFSET, secure_bit_addr);
-	if (hr != ERROR_OK)
-		goto exit;
+
 exit:
 	return hr;
 }
@@ -1056,7 +1055,7 @@ exit:
  * @param last last sector to erase
  * @return ERROR_OK in case of success, ERROR_XXX code otherwise
  *************************************************************************************************/
-int efuse_erase(struct flash_bank *bank, int first, int last)
+int efuse_erase(struct flash_bank *bank, unsigned int first, unsigned int last)
 {
 	(void) bank; (void) first; (void) last;
 	LOG_INFO("Erase operation for EFuse bank is not supported, skipping");
@@ -1311,7 +1310,7 @@ COMMAND_HANDLER(handle_blow_efuse_range)
 	memset(buffer, 0xFF, sizeof(buffer));
 
 	for (uint32_t i = 0; i < width; i++)
-		buffer[offset + i] = (value & (0x01u << i)) ? 1u : 0u;
+		buffer[offset + i] = (value & (0x01ull << i)) ? 1u : 0u;
 
 	return efuse_program_bank(bank, buffer, offset, bank->size);
 }

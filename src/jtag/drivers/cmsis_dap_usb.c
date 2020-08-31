@@ -1199,6 +1199,26 @@ static int cmsis_dap_swd_switch_seq(enum swd_special_seq seq)
 		s = swd_seq_swd_to_jtag;
 		s_len = swd_seq_swd_to_jtag_len;
 		break;
+	case SWD_TO_DORMANT:
+		LOG_DEBUG("SWD-to-DORMANT");
+		s = swd_seq_swd_to_dormant;
+		s_len = swd_seq_swd_to_dormant_len;
+		break;
+	case DORMANT_TO_SWD:
+		LOG_DEBUG("DORMANT-to-SWD");
+		s = swd_seq_dormant_to_swd;
+		s_len = swd_seq_dormant_to_swd_len;
+		break;
+	case JTAG_TO_DORMANT:
+		LOG_DEBUG("JTAG-to-DORMANT");
+		s = swd_seq_jtag_to_dormant;
+		s_len = swd_seq_jtag_to_dormant_len;
+		break;
+	case DORMANT_TO_JTAG:
+		LOG_DEBUG("DORMANT-to-JTAG");
+		s = swd_seq_dormant_to_jtag;
+		s_len = swd_seq_dormant_to_jtag_len;
+		break;
 	default:
 		LOG_ERROR("Sequence %d not supported", seq);
 		return ERROR_FAIL;
@@ -1238,12 +1258,12 @@ static int cmsis_dap_clear_buffers(struct cmsis_dap *dap)
 	int read = 0;
 
 	if(dap->is_hid) {
-		read = hid_read_timeout(dap->hid_handle, dap->packet_buffer, dap->packet_size, 1);
+		read = hid_read_timeout(dap->hid_handle, dap->packet_buffer, dap->packet_size, 50);
 		if(read == 0)
 			hr = ERROR_FAIL;
 	} else {
 		hr = libusb_bulk_transfer(dap->bulk_handle, (2 | LIBUSB_ENDPOINT_IN),
-						dap->packet_buffer, dap->packet_size - 1, &read, 1);
+						dap->packet_buffer, dap->packet_size - 1, &read, 50);
 		if (hr != 0)
 			hr = ERROR_FAIL;
 	}

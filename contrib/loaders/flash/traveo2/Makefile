@@ -37,12 +37,12 @@ OUT_DIR    ?= out/
 # Debug/Release options
 ##############################################################################################################################
 OPTFLAGS := -Os
-GLOBAL_DEFS += -DNDEBUG 
+GLOBAL_DEFS += -DNDEBUG
 ##############################################################################################################################
 # Warning options
 ##############################################################################################################################
 CC_WARN := -Wall -Wextra -Wno-unused-variable -Wno-unused-function -Wno-unused-but-set-variable -Wno-return-type -Wno-maybe-uninitialized \
-			-Wno-comment -Wno-unused-parameter -Wno-expansion-to-defined
+			-Wno-comment -Wno-unused-parameter -Wno-expansion-to-defined -Wno-sign-compare -Wno-absolute-value
 
 ##############################################################################################################################
 # Code generation options

@@ -110,8 +110,10 @@ static int os_alloc_create(struct target *target, struct rtos_type *ostype)
 
 	if (JIM_OK == ret) {
 		ret = target->rtos->type->create(target);
-		if (ret != JIM_OK)
-			os_free(target);
+		if(ret == JIM_OK) {
+			if(target->rtos_wipe_pending)
+				rtos_wipe(target);
+		} else os_free(target);
 	}
 
 	return ret;
@@ -387,6 +389,8 @@ int rtos_thread_packet(struct connection *connection, char const *packet, int pa
 				 * when oocd is running in daemon mode */
 				//target->rtos_auto_detect = false;
 				target->rtos->type->create(target);
+				if(target->rtos_wipe_pending)
+					rtos_wipe(target);
 			}
 			/* Needed first time rtos is detected esp. when gdb is being
 			 * used for an attach with no immediate continue */
@@ -719,8 +723,12 @@ int rtos_wipe(struct target *target)
 	if(target && target->rtos && target->rtos->type && target->rtos->type->wipe)
 	{
 		hr = target->rtos->type->wipe(target);
-		if (hr == ERROR_OK)
+		if (hr == ERROR_OK) {
+			target->rtos_wipe_pending = false;
 			hr = rtos_update_threads(target);
+		}
+	} else {
+		target->rtos_wipe_pending = true;
 	}
 
 	return hr;

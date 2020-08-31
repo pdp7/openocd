@@ -225,7 +225,7 @@ static void flush_journal(struct adiv5_dap *dap, struct list_head *lh)
 
 static void jtag_quit(struct adiv5_dap *dap)
 {
-	LOG_INFO("Powering down Debug Domains...");
+	LOG_INFO("%s: powering down debug domain...", adiv5_dap_name(dap));
 	int hr1 = dap_queue_dp_write(dap, DP_CTRL_STAT, 0);
 	int hr2 = dap_dp_poll_register(dap, DP_CTRL_STAT, CDBGPWRUPACK | CSYSPWRUPACK, 0, 100);
 

@@ -197,7 +197,8 @@ struct target {
 	struct rtos *rtos;					/* Instance of Real Time Operating System support */
 	bool rtos_auto_detect;				/* A flag that indicates that the RTOS has been specified as "auto"
 										 * and must be detected when symbols are offered */
-	bool rtos_wipe_on_reset_halt;
+	bool rtos_wipe_on_reset_halt;		/* true if RTOS data structures in RAM should be wiped-out during reset */
+	bool rtos_wipe_pending;				/* pend wipe if it failed previously (e.g. because RTOS is not detected yet) */
 
 	struct backoff_timer backoff;
 	int smp;							/* add some target attributes for smp support */
